@@ -73,6 +73,9 @@ ifndef KBUILD_VERBOSE
   KBUILD_VERBOSE = 0
 endif
 
+# [pino] symbol "@" used to suppress the echoing of recipe, which means, withtout
+# it, the command in recipe will be printed, otherwise not. See:
+# "5.2 Recipe Echoing" of `info make` [oniq]
 ifeq ($(KBUILD_VERBOSE),1)
   quiet =
   Q =
@@ -83,7 +86,7 @@ endif
 
 # If the user is running make -s (silent mode), suppress echoing of
 # commands
-
+# [pino] why "x$(MAKEFLAGS)"??? To be test.[oniq]
 ifneq ($(filter 4.%,$(MAKE_VERSION)),)	# make-4
 ifneq ($(filter %s ,$(firstword x$(MAKEFLAGS))),)
   quiet=silent_
@@ -124,16 +127,21 @@ ifeq ("$(origin O)", "command line")
 endif
 
 # That's our default target when none is given on the command line
+# [pino] NOT .PHONY = =|. Just value assignment. [oniq]
 PHONY := _all
 _all:
 
-# Cancel implicit rules on top Makefile
+# Cancel implicit rules on top Makefile.
+# [pino] "3.5 How Makefiles Are Remade" of `info make`. Avoid implicite rule
+# searching mainly for performance. Refer commit 1cacc9ab8bf10 for problem
+# scenario. [oniq]
 $(CURDIR)/Makefile Makefile: ;
 
 ifneq ($(words $(subst :, ,$(CURDIR))), 1)
   $(error main directory cannot contain spaces nor colons)
 endif
 
+# [pino] generally, we don't set KBUILD_OUTPUT, skip analysing this part temporarily. [oniq]
 ifneq ($(KBUILD_OUTPUT),)
 # Invoke a second make in the output directory, passing relevant variables
 # check that the output directory actually exists
@@ -217,10 +225,14 @@ objtree		:= .
 src		:= $(srctree)
 obj		:= $(objtree)
 
+# [pino] The Search Path for All Prerequisites is $(srctree), and $(KBUILD_EXTMOD) if has.
+# Refer: "4.5.1 `VPATH': Search Path for All Prerequisites" of `info make`. [oniq]
 VPATH		:= $(srctree)$(if $(KBUILD_EXTMOD),:$(KBUILD_EXTMOD))
 
 export srctree objtree VPATH
 
+# [pino] Here introduce a new concept to me: user mode linux. Refer its homepage:
+# http://user-mode-linux.sourceforge.net/ for more info. [oniq]
 # SUBARCH tells the usermode build what the underlying arch is.  That is set
 # first, and if a usermode build is happening, the "ARCH=um" on the command
 # line overrides the setting of ARCH below.  If a native build is happening,
@@ -256,12 +268,16 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/x86/ -e s/x86_64/x86/ \
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
 ARCH		?= $(SUBARCH)
 CROSS_COMPILE	?= $(CONFIG_CROSS_COMPILE:"%"=%)
+# [pino] For the line above, refer "6.3.1 Substitution References" of `info make`.
+# But where CONFIG_CROSS_COMPILE come from? don't see .config included. [oniq]
 
 # Architecture as present in compile.h
 UTS_MACHINE 	:= $(ARCH)
 SRCARCH 	:= $(ARCH)
 
 # Additional ARCH settings for x86
+# [pino] We already see there is arch variable handling above, but $(ARCH) could
+# passed from commandline, unify the name/value of $(ARCH). [oniq]
 ifeq ($(ARCH),i386)
         SRCARCH := x86
 endif
@@ -445,6 +461,10 @@ export RCS_TAR_IGNORE := --exclude SCCS --exclude BitKeeper --exclude .svn \
 # Rules shared between *config targets and build targets
 
 # Basic helpers built in scripts/
+# [pino] variable 'build' is defined in scripts/Kbuild.include
+# which is included above. "$(build)=scripts/basic" seems little confusing,
+# actually, it is just concatenate 2 strings together, it equals:
+# -f $(srctree)/scripts/Makefile.build obj=scripts/basic [oniq]
 PHONY += scripts_basic
 scripts_basic:
 	$(Q)$(MAKE) $(build)=scripts/basic
@@ -483,11 +503,13 @@ asm-generic:
 version_h := include/generated/uapi/linux/version.h
 old_version_h := include/linux/version.h
 
+# [pino] This variable means the target that don't produce .config? [oniq]
 no-dot-config-targets := clean mrproper distclean \
 			 cscope gtags TAGS tags help% %docs check% coccicheck \
 			 $(version_h) headers_% archheaders archscripts \
 			 kernelversion %src-pkg
 
+# [pino] dot-config means will a new .config be produced? [oniq]
 config-targets := 0
 mixed-targets  := 0
 dot-config     := 1
@@ -520,9 +542,16 @@ ifeq ($(mixed-targets),1)
 
 PHONY += $(MAKECMDGOALS) __build_one_by_one
 
+# [pino] '@' in recipe is used to supress echoing; the colon ':' is a null command
+# in shell means no operation. [oniq]
 $(filter-out __build_one_by_one, $(MAKECMDGOALS)): __build_one_by_one
 	@:
 
+# [pino] For shell newbies: 'set' is a built-in command of bash, -e tells that
+# it should exit the script if any statement returns a non-true value. Details
+# at chapter "SHELL BUILTIN COMMANDS" of `man bash`.
+# Refer "5.1.2 Using Variables in Recipes" in `info make` to learn the following
+# recipe. [oniq]
 __build_one_by_one:
 	$(Q)set -e; \
 	for i in $(MAKECMDGOALS); do \
@@ -1697,6 +1726,7 @@ endif
 
 endif	# skip-makefile
 
+# [pino] Refer: "4.7 Rules without Recipes or Prerequisites" of `info make`. [oniq]
 PHONY += FORCE
 FORCE:
 
