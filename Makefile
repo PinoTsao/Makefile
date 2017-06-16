@@ -86,7 +86,17 @@ endif
 
 # If the user is running make -s (silent mode), suppress echoing of
 # commands
-# [pino] why "x$(MAKEFLAGS)"??? To be test.[oniq]
+# [pino] why "x$(MAKEFLAGS)"??? To be test.
+# 2017/6/12: refer https://lkml.org/lkml/2017/5/19/371 for more hints. The
+# following lines will be removed, but it is also good to understand why it
+# was written like this.
+#
+# One can use "make -p -s 2>/dev/null | grep ^MAKEFLAGS", then add more
+# different command arguements to observe how make handle them & put them
+# into MAKEFLAGS, then you will understand the patch in the link above.
+#
+# 2017/6/14: Refer https://patchwork.kernel.org/patch/9768307/ to check the
+# Q&A (why there is 'x'). [oniq]
 ifneq ($(filter 4.%,$(MAKE_VERSION)),)	# make-4
 ifneq ($(filter %s ,$(firstword x$(MAKEFLAGS))),)
   quiet=silent_
@@ -153,6 +163,7 @@ $(if $(KBUILD_OUTPUT),, \
 
 PHONY += $(MAKECMDGOALS) sub-make
 
+# [pino] '@' supress echoing, ':' is no op in bash. [oniq]
 $(filter-out _all sub-make $(CURDIR)/Makefile, $(MAKECMDGOALS)) _all: sub-make
 	@:
 
