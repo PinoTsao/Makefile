@@ -128,6 +128,11 @@ export quiet Q KBUILD_VERBOSE
 
 # KBUILD_SRC is set on invocation of make in OBJ directory
 # KBUILD_SRC is not intended to be used by the regular user (for now)
+# [pino] Actually, KBUILD_SRC is used in conjuction with KBUILD_OUTPUT, it is
+# not set by user in command line, but set by makefile automatically when
+# using "make O=", make will be called in KBUILD_OUTPUT dir the 2nd time,
+# as the sub-make's recipe shows. So, when we initially call make in src dir,
+# KBUILD_SRC is not defined, will go through the following code.[oniq]
 ifeq ($(KBUILD_SRC),)
 
 # OK, Make called in directory where kernel src resides
@@ -151,7 +156,6 @@ ifneq ($(words $(subst :, ,$(CURDIR))), 1)
   $(error main directory cannot contain spaces nor colons)
 endif
 
-# [pino] generally, we don't set KBUILD_OUTPUT, skip analysing this part temporarily. [oniq]
 ifneq ($(KBUILD_OUTPUT),)
 # Invoke a second make in the output directory, passing relevant variables
 # check that the output directory actually exists
@@ -163,15 +167,21 @@ $(if $(KBUILD_OUTPUT),, \
 
 PHONY += $(MAKECMDGOALS) sub-make
 
-# [pino] '@' supress echoing, ':' is no op in bash. [oniq]
+# [pino] '@' supress echoing, ':' is no op in bash.
+# "4.6 Phony targets" of `info make`: When one phony target is a prerequisite
+# of another, it serves as a subroutine of the other. [oniq]
 $(filter-out _all sub-make $(CURDIR)/Makefile, $(MAKECMDGOALS)) _all: sub-make
 	@:
 
+# [pino] Invoke a second make in the KBUILD_OUTPUT directory,
+# passing relevant variables. [oniq]
 sub-make:
 	$(Q)$(MAKE) -C $(KBUILD_OUTPUT) KBUILD_SRC=$(CURDIR) \
 	-f $(CURDIR)/Makefile $(filter-out _all sub-make,$(MAKECMDGOALS))
 
 # Leave processing to above invocation of make
+# [pino] set skip-makefile here, will skip all the following rest of makefile
+# in the 1st make, but the 2nd make above will process the following makefile. [oniq]
 skip-makefile := 1
 endif # ifneq ($(KBUILD_OUTPUT),)
 endif # ifeq ($(KBUILD_SRC),)
@@ -225,6 +235,11 @@ ifeq ($(KBUILD_SRC),)
         # building in the source tree
         srctree := .
 else
+# [pino] when coming here, it means we are in the 2nd make of using "make O=",
+# so,refer sub-make's recipe to understand the value of KBUILD_SRC & CURDIR.
+# Here, CURDIR actually is $(KBUILD_OUTPUT) passed via comman line, and
+# KBUILD_SRC actually is the $(CURDIR) of 1st make, which is the real
+# src directory. [oniq]
         ifeq ($(KBUILD_SRC)/,$(dir $(CURDIR)))
                 # building in a subdirectory of the source tree
                 srctree := ..
@@ -243,7 +258,10 @@ VPATH		:= $(srctree)$(if $(KBUILD_EXTMOD),:$(KBUILD_EXTMOD))
 export srctree objtree VPATH
 
 # [pino] Here introduce a new concept to me: user mode linux. Refer its homepage:
-# http://user-mode-linux.sourceforge.net/ for more info. [oniq]
+# http://user-mode-linux.sourceforge.net for more info. [oniq]
+# [pino] In sed regex, the dot or period "." means matching any single character.
+# So i.86 will match i386, i486, ..., etc.
+# Refer chapter 5 "Regular expressions" of `info ed` for regex. [oniq]
 # SUBARCH tells the usermode build what the underlying arch is.  That is set
 # first, and if a usermode build is happening, the "ARCH=um" on the command
 # line overrides the setting of ARCH below.  If a native build is happening,
@@ -286,9 +304,11 @@ CROSS_COMPILE	?= $(CONFIG_CROSS_COMPILE:"%"=%)
 UTS_MACHINE 	:= $(ARCH)
 SRCARCH 	:= $(ARCH)
 
+# [pino] We already see there is variable handling on SUBARCH above, but
+# $(ARCH) could be passed from command line.
+# For example, it converts all Intel arch name to "x86", the following lines
+# do the same thing. [oniq]
 # Additional ARCH settings for x86
-# [pino] We already see there is arch variable handling above, but $(ARCH) could
-# passed from commandline, unify the name/value of $(ARCH). [oniq]
 ifeq ($(ARCH),i386)
         SRCARCH := x86
 endif
@@ -401,7 +421,15 @@ AFLAGS_KERNEL	=
 LDFLAGS_vmlinux =
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage -fno-tree-loop-im -Wno-maybe-uninitialized
 CFLAGS_KCOV	:= $(call cc-option,-fsanitize-coverage=trace-pc,)
-
+# [pino] cc-option is defined in scripts/Kbuild.include, you can refer 3.11 &
+# 3.12 of Documentation/kbuild/makefiles.txt for more detailed introduction of
+# generic definitions in scripts/Kbuild.include
+#
+# We may noticed that cc-option use KBUILD_CPPFLAGS which is defined below,
+# induce me to find out that can we use a variable still not defined
+# at the point? Then lead me to learn the "6.2 The Two Flavors of Variables"
+# of `info make` to know the detailed difference between "=" and ":=".
+# [oniq]
 
 # Use USERINCLUDE when you must reference the UAPI directories only.
 USERINCLUDE    := \
@@ -474,8 +502,9 @@ export RCS_TAR_IGNORE := --exclude SCCS --exclude BitKeeper --exclude .svn \
 # Basic helpers built in scripts/
 # [pino] variable 'build' is defined in scripts/Kbuild.include
 # which is included above. "$(build)=scripts/basic" seems little confusing,
-# actually, it is just concatenate 2 strings together, it equals:
-# -f $(srctree)/scripts/Makefile.build obj=scripts/basic [oniq]
+# actually, it just concatenates 2 strings together, it equals:
+# -f $(srctree)/scripts/Makefile.build obj=scripts/basic
+# [oniq]
 PHONY += scripts_basic
 scripts_basic:
 	$(Q)$(MAKE) $(build)=scripts/basic
@@ -514,7 +543,7 @@ asm-generic:
 version_h := include/generated/uapi/linux/version.h
 old_version_h := include/linux/version.h
 
-# [pino] This variable means the target that don't produce .config? [oniq]
+# [pino] This variable means the target that don't need .config? [oniq]
 no-dot-config-targets := clean mrproper distclean \
 			 cscope gtags TAGS tags help% %docs check% coccicheck \
 			 $(version_h) headers_% archheaders archscripts \
@@ -525,12 +554,18 @@ config-targets := 0
 mixed-targets  := 0
 dot-config     := 1
 
+# [pino] if there is nothing but $(no-dot-config-targets) in command line,
+# then dot-config evaluates to 0. [oniq]
 ifneq ($(filter $(no-dot-config-targets), $(MAKECMDGOALS)),)
 	ifeq ($(filter-out $(no-dot-config-targets), $(MAKECMDGOALS)),)
 		dot-config := 0
 	endif
 endif
 
+# [pino] if there is config target in command line, then config-targets
+# evaluates to 1; base on it, if there are other targets besides config-targets,
+# then mixed-targets evalutates to 1.
+# [oniq]
 ifeq ($(KBUILD_EXTMOD),)
         ifneq ($(filter config %config,$(MAKECMDGOALS)),)
                 config-targets := 1
@@ -539,7 +574,10 @@ ifeq ($(KBUILD_EXTMOD),)
                 endif
         endif
 endif
+
 # install and module_install need also be processed one by one
+# [pino] if target "install","module_install" both are specified in command
+# line, it is also mixed-targets. [oniq]
 ifneq ($(filter install,$(MAKECMDGOALS)),)
         ifneq ($(filter modules_install,$(MAKECMDGOALS)),)
 	        mixed-targets := 1
