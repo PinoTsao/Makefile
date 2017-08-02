@@ -2,10 +2,13 @@
 # Building
 # ==========================================================================
 
-# [pino] when `make menuconfig`, there are two value for $obj,
-# 1. src = obj = scripts/basic
-# 2. src = obj = scripts/kconfig
-# The following analisis of variable are based on make menuconfig.
+# [pino] This makefile is a general entry for many(maybe all?) targets.
+# Take `make menuconfig` for example:
+#   src = obj = scripts/kconfig
+# When target is vmlinux, will go into this file to desend each direcotories,
+# for exmaple, src = obj = init(the init/ dir)
+# This makefile will include several other makefile according to the actual
+# target, this is one of the tricky of building.
 # [oniq]
 src := $(obj)
 
@@ -39,6 +42,7 @@ subdir-ccflags-y :=
 # Read auto.conf if it exists, otherwise ignore
 -include include/config/auto.conf
 
+# [pino] 1st one that will always be included. [oniq]
 include scripts/Kbuild.include
 
 # For backward compatibility check that these variables do not change
@@ -47,9 +51,10 @@ save-cflags := $(CFLAGS)
 # The filename Kbuild has precedence over Makefile
 kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
 kbuild-file := $(if $(wildcard $(kbuild-dir)/Kbuild),$(kbuild-dir)/Kbuild,$(kbuild-dir)/Makefile)
+# [pino] 2nd makefile, also the most important and relevant one to the target. [oniq]
 include $(kbuild-file)
-# [pino] kbuild-file evaluates to scripts/basic/Makefile
-# and scripts/kconfig/Makefile [oniq]
+# [pino] kbuild-file evaluates to scripts/kconfig/Makefile
+# when `make menuconfig` [oniq]
 
 # If the save-* variables changed error out
 ifeq ($(KBUILD_NOPEDANTIC),)
@@ -57,7 +62,7 @@ ifeq ($(KBUILD_NOPEDANTIC),)
                 $(error CFLAGS was changed in "$(kbuild-file)". Fix it to use ccflags-y)
         endif
 endif
-
+# [pino] 3rd included makefile, all kinds of utilites. [oniq]
 include scripts/Makefile.lib
 
 ifdef host-progs
@@ -134,6 +139,8 @@ modkern_cflags =                                          \
 		$(KBUILD_CFLAGS_KERNEL) $(CFLAGS_KERNEL))
 quiet_modtag := $(empty)   $(empty)
 
+# [pino] Refer "6.11 Target-specific Variable Values", and
+# "6.3.1 Substitution References" of "info make" [oniq]
 $(real-objs-m)        : part-of-module := y
 $(real-objs-m:.o=.i)  : part-of-module := y
 $(real-objs-m:.o=.s)  : part-of-module := y
@@ -240,8 +247,8 @@ ifeq ("$(origin RECORDMCOUNT_WARN)", "command line")
 endif
 # Due to recursion, we must skip empty.o.
 # The empty.o file is created in the make process in order to determine
-#  the target endianness and word size. It is made before all other C
-#  files, including recordmcount.
+# the target endianness and word size. It is made before all other C
+# files, including recordmcount.
 sub_cmd_record_mcount =					\
 	if [ $(@) != "scripts/mod/empty.o" ]; then	\
 		$(objtree)/scripts/recordmcount $(RECORDMCOUNT_FLAGS) "$(@)";	\
@@ -256,13 +263,13 @@ sub_cmd_record_mcount = set -e ; perl $(srctree)/scripts/recordmcount.pl "$(ARCH
 	"$(LD)" "$(NM)" "$(RM)" "$(MV)" \
 	"$(if $(part-of-module),1,0)" "$(@)";
 recordmcount_source := $(srctree)/scripts/recordmcount.pl
-endif
+endif # BUILD_C_RECORDMCOUNT
 cmd_record_mcount =						\
 	if [ "$(findstring $(CC_FLAGS_FTRACE),$(_c_flags))" =	\
 	     "$(CC_FLAGS_FTRACE)" ]; then			\
 		$(sub_cmd_record_mcount)			\
 	fi;
-endif
+endif # CONFIG_FTRACE_MCOUNT_RECORD
 
 ifdef CONFIG_STACK_VALIDATION
 ifneq ($(SKIP_STACK_VALIDATION),1)

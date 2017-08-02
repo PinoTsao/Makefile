@@ -77,7 +77,7 @@ Makefile.build will include several other makefiles, it inlcude the following by
 >include scripts/Kbuild.include
 >include $(kbuild-file)
 >include scripts/Makefile.lib
->include scripts/Makefile.host
+>include scripts/Makefile.host # Depends on
 
 Target "menuconfig" is a host program(Refer "4 Host Program support" of Documentation/kbuild/makefiles.txt).
 
@@ -293,6 +293,7 @@ head-y, init-y is defined as following
 	# [pino] So init-y actually evaluates to init/built-in.o
 	
 core-y, libs-y, drivers-y, net-y, virt-y is defined in top makefile as following:
+(of course, they can be "+="ed in other makefiles, like arch/$(SRCARCH)/Makefile)
 
 	core-y          := usr/
 	core-y += arch/x86/   # in arch/x86/makefile
@@ -315,8 +316,8 @@ core-y, libs-y, drivers-y, net-y, virt-y is defined in top makefile as following
 	virt-y          := virt/
 	virt-y          := $(patsubst %/, %/built-in.o, $(virt-y))	
 
-In a word, $(vmlinux-deps) are the real file.
-Then we have
+In a word, $(vmlinux-deps) actually are the real files.
+And there is following in top makefile:
 
 	vmlinux-dirs    := $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
 	                      $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
@@ -327,6 +328,11 @@ Then we have
 	# make sure no implicit rule kicks in
 	$(sort $(vmlinux-deps)): $(vmlinux-dirs) ;
  
+	# Handle descending into subdirectories listed in $(vmlinux-dirs)
+	# Preset locale variables to speed up the build process. Limit locale
+	# tweaks to this spot to avoid wrong language settings when running
+	# make menuconfig etc.
+	# Error messages still appears in the original language
 	PHONY += $(vmlinux-dirs)
 	$(vmlinux-dirs): prepare scripts
 	         $(Q)$(MAKE) $(build)=$@
@@ -339,6 +345,14 @@ Then we have
 	prepare-objtool: $(objtool_target)
 	archprepare: archheaders archscripts prepare1 scripts_basic
 
+Phony target *vmlinux-dirs* serves as subroutine of *vmlinux-deps*. And we can see there are still prerequisites for *vmlinux-dirs*, I don't want to expand it to the end, otherwise this doc will be quite long and distracted.
+But in the code above, we can find something interesting, that is:
+
+	$(vmlinux-dirs): prepare scripts
+		$(Q)$(MAKE) $(build)=$@
+
+From the makefile, we already know that all the files that need to compile are located in $(vmlinux-dirs), then this rule to go into each of the dir to build each of the $(vmlinux-deps). Let's take init/ for example, continue the analysis.
+The following analysis will mainly in scripts/Makefile.build
 
 ### Suspicious cleanup
 
