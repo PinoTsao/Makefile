@@ -354,7 +354,191 @@ But in the code above, we can find something interesting, that is:
 From the makefile, we already know that all the files that need to compile are located in $(vmlinux-dirs), then this rule to go into each of the dir to build each of the $(vmlinux-deps). Let's take init/ for example, continue the analysis.
 The following analysis will mainly in scripts/Makefile.build
 
-### Suspicious cleanup
+let's look at Makefile.build, when build init/, 
+
+	src = $(obj) = init
+	
+and because the rule above  doesn't specify the goal, so the default goal is __builid
+
+	PHONY := __build
+	__build:
+
+and the rule for __build is:
+
+	__build: $(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y)) \
+		$(if $(KBUILD_MODULES),$(obj-m) $(modorder-target)) \
+		$(subdir-ym) $(always)
+		@:
+		
+In our case, only *builtin-target* has definition:
+
+	ifneq ($(strip $(obj-y) $(obj-m) $(obj-) $(subdir-m) $(lib-target)),)
+	builtin-target := $(obj)/built-in.o
+	endif
+
+	$(builtin-target): $(obj-y) FORCE
+		$(call if_changed,link_o_target)
+
+Makefile.build will include scripts/Kbuild.include, the makefile of build dir(it is init/Makefile in our case), scripts/Makefile.lib.
+init/Makefile defined obj-y, for example, in our case, we have:
+
+	obj-y                          := main.o version.o mounts.o
+
+Makefile.lib add prefix to obj-y
+
+	obj-y           := $(addprefix $(obj)/,$(obj-y))
+
+so, the main.o version.o mounts.o will be init/main.o init/version.o init/mounts.o
+We don't use implicte rule, and in Makefile.build, we have :
+
+	# Built-in and composite module parts
+	$(obj)/%.o: $(src)/%.c $(recordmcount_source) $(objtool_obj) FORCE
+		$(call cmd,force_checksrc)
+		$(call if_changed_rule,cc_o_c)
+
+which defined how to comile each .o file from .c file. In our case, the prerequisite *recordmcount_source* and *objtool_obj* is defined as
+
+	recordmcount_source := $(srctree)/scripts/recordmcount.pl
+	objtool_obj = $(if $(patsubst y%,, \
+		$(OBJECT_FILES_NON_STANDARD_$(basetarget).o)$(OBJECT_FILES_NON_STANDARD)n), \
+		$(__objtool_obj))
+
+So, both of them doesn't matter, they are just  real files. In this rule, because we don't set C= in command line, so the 1st line of the recipe
+
+	$(call cmd,force_checksrc)
+	
+doesn't matter, the 2nd line of recipe:
+
+	$(call if_changed_rule,cc_o_c)
+
+is the key we need to analyse. Refer Kbuild.include for if_changed_rule:
+
+	if_changed_rule = $(if $(strip $(any-prereq) $(arg-check) ),                 \
+				@set -e;                                                             \
+				$(rule_$(1)), @:)
+				
+so, the real executed command is rule_cc_o_c, which is defined in Makefile.build:
+
+	define rule_cc_o_c
+        $(call echo-cmd,checksrc) $(cmd_checksrc)                         \
+        $(call cmd_and_fixdep,cc_o_c)                                     \
+        $(cmd_modversions_c)                                              \
+        $(call echo-cmd,objtool) $(cmd_objtool)                           \
+        $(call echo-cmd,record_mcount) $(cmd_record_mcount)
+	endef
+
+If you want check the detail of compiling .c to .o, we can use
+
+	make init/built-in.o > tmp.txt
+	
+to see every detail, and compare it with rule_cc_o_c, we will eventually know how .c is compiled to .o file.
+Now we take the init/main.o for  example, to check the compilation detail. The following piece is taken from make init/built-in.o [Insert characters "[delimeter]" as delimeter for easy reading]
+
+	make -f ./scripts/Makefile.build obj=init
+	set -e;            echo '  CC      init/main.o'; gcc -Wp,-MD,init/.main.o.d  -nostdinc -isystem /usr/lib/gcc/x86_64-redhat-linux/6.3.1/include -I./arch/x86/include -I./arch/x86/include/generated/uapi -I./arch/x86/include/generated  -I./include -I./arch/x86/include/uapi -I./include/uapi -I./include/generated/uapi -include ./include/linux/kconfig.h -D__KERNEL__ -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -Werror-implicit-function-declaration -Wno-format-security -std=gnu89 -fno-PIE -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -m64 -falign-jumps=1 -falign-loops=1 -mno-80387 -mno-fp-ret-in-387 -mpreferred-stack-boundary=3 -mskip-rax-setup -mtune=generic -mno-red-zone -mcmodel=kernel -funit-at-a-time -DCONFIG_AS_CFI=1 -DCONFIG_AS_CFI_SIGNAL_FRAME=1 -DCONFIG_AS_CFI_SECTIONS=1 -DCONFIG_AS_FXSAVEQ=1 -DCONFIG_AS_SSSE3=1 -DCONFIG_AS_CRC32=1 -DCONFIG_AS_AVX=1 -DCONFIG_AS_AVX2=1 -DCONFIG_AS_AVX512=1 -DCONFIG_AS_SHA1_NI=1 -DCONFIG_AS_SHA256_NI=1 -pipe -Wno-sign-compare -fno-asynchronous-unwind-tables -fno-delete-null-pointer-checks -Wno-frame-address -O2 --param=allow-store-data-races=0 -DCC_HAVE_ASM_GOTO -fplugin=./scripts/gcc-plugins/latent_entropy_plugin.so -DLATENT_ENTROPY_PLUGIN -Wframe-larger-than=2048 -fstack-protector-strong -Wno-unused-but-set-variable -Wno-unused-const-variable -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-var-tracking-assignments -g -pg -mfentry -DCC_USING_FENTRY -Wdeclaration-after-statement -Wno-pointer-sign -fno-strict-overflow -fconserve-stack -Werror=implicit-int -Werror=strict-prototypes -Werror=date-time -Werror=incompatible-pointer-types -Werror=designated-init -fno-function-sections -fno-data-sections    -DKBUILD_BASENAME='"main"'  -DKBUILD_MODNAME='"main"' -c -o init/main.o init/main.c;    [delimeter]    scripts/basic/fixdep init/.main.o.d init/main.o 'gcc -Wp,-MD,init/.main.o.d  -nostdinc -isystem /usr/lib/gcc/x86_64-redhat-linux/6.3.1/include -I./arch/x86/include -I./arch/x86/include/generated/uapi -I./arch/x86/include/generated  -I./include -I./arch/x86/include/uapi -I./include/uapi -I./include/generated/uapi -include ./include/linux/kconfig.h -D__KERNEL__ -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -Werror-implicit-function-declaration -Wno-format-security -std=gnu89 -fno-PIE -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -m64 -falign-jumps=1 -falign-loops=1 -mno-80387 -mno-fp-ret-in-387 -mpreferred-stack-boundary=3 -mskip-rax-setup -mtune=generic -mno-red-zone -mcmodel=kernel -funit-at-a-time -DCONFIG_AS_CFI=1 -DCONFIG_AS_CFI_SIGNAL_FRAME=1 -DCONFIG_AS_CFI_SECTIONS=1 -DCONFIG_AS_FXSAVEQ=1 -DCONFIG_AS_SSSE3=1 -DCONFIG_AS_CRC32=1 -DCONFIG_AS_AVX=1 -DCONFIG_AS_AVX2=1 -DCONFIG_AS_AVX512=1 -DCONFIG_AS_SHA1_NI=1 -DCONFIG_AS_SHA256_NI=1 -pipe -Wno-sign-compare -fno-asynchronous-unwind-tables -fno-delete-null-pointer-checks -Wno-frame-address -O2 --param=allow-store-data-races=0 -DCC_HAVE_ASM_GOTO -fplugin=./scripts/gcc-plugins/latent_entropy_plugin.so -DLATENT_ENTROPY_PLUGIN -Wframe-larger-than=2048 -fstack-protector-strong -Wno-unused-but-set-variable -Wno-unused-const-variable -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-var-tracking-assignments -g -pg -mfentry -DCC_USING_FENTRY -Wdeclaration-after-statement -Wno-pointer-sign -fno-strict-overflow -fconserve-stack -Werror=implicit-int -Werror=strict-prototypes -Werror=date-time -Werror=incompatible-pointer-types -Werror=designated-init -fno-function-sections -fno-data-sections    -DKBUILD_BASENAME='\''"main"'\''  -DKBUILD_MODNAME='\''"main"'\'' -c -o init/main.o init/main.c' > init/.main.o.tmp; rm -f init/.main.o.d; mv -f init/.main.o.tmp init/.main.o.cmd;    [delimeter]    ./tools/objtool/objtool check "init/main.o";    [delimeter]    if [ "-pg" = "-pg" ]; then if [ init/main.o != "scripts/mod/empty.o" ]; then ./scripts/recordmcount  "init/main.o"; fi; fi;
+	
+We already know, the 2nd line of the recipe is the key
+	
+	$(call if_changed_rule,cc_o_c)
+
+Let's expand it:
+	
+	$(if $(strip $(any-prereq) $(arg-check) ), @set -e; $(rule_cc_o_c), @:)
+
+Using human language to explain: if it need to be compile, do "set -e; $(rule_cc_o_c)", else do nothing(@:)
+Because we are building from scratch, so surely will we execute $(rule_cc_o_c). Let's examine each line of $(rule_cc_o_c).
+
+Because we dont specify C= in command line, so $(quiet_cmd_checksrc) and $(cmd_checksrc) is empty.
+2nd line is
+
+	$(call cmd_and_fixdep,cc_o_c) 
+
+and	cmd_and_fixdep is defined in Kbuild.inlcude (we expand it directly)
+
+	cmd_and_fixdep =                                                             \
+        echo $(quiet_cmd_cc_o_c) $(cmd_cc_o_c);                                             \
+        scripts/basic/fixdep $(depfile) $@ '$(make-cmd)' > $(dot-target).tmp;\
+        rm -f $(depfile);                                                    \
+        mv -f $(dot-target).tmp $(dot-target).cmd;
+
+compare  the  definition with the output carefully, you will find the output is strictly following $(cmd_and_fixdep).
+
+3rd line of $(rule_cc_o_c)
+
+	$(cmd_modversions_c)
+
+is empty in our case, because we don't define CONFIG_MODVERSIONS.
+
+4th line of $(rule_cc_o_c) is
+
+	$(call echo-cmd,objtool) $(cmd_objtool)   # 4th line, the following is just a quick referenc
+	# cmd_objtool is defined as：
+	__objtool_obj := $(objtree)/tools/objtool/objtool
+	objtool_args = check
+	ifndef CONFIG_FRAME_POINTER
+	objtool_args += --no-fp
+	endif
+
+	cmd_objtool = $(if $(patsubst y%,, \
+		$(OBJECT_FILES_NON_STANDARD_$(basetarget).o)$(OBJECT_FILES_NON_STANDARD)n), \
+		$(__objtool_obj) $(objtool_args) "$(@)";)
+
+Because there is no $(quiet_cmd_objtool), and no makefile has OBJECT_FILES_NON_STANDARD_foo.o definition, so just execute $(cmd_objtool), witch is 
+
+	./tools/objtool/objtool check "init/main.o"
+
+5th line of $(rule_cc_o_c) is
+
+	$(call echo-cmd,record_mcount) $(cmd_record_mcount)
+
+Because there is no $(quiet_cmd_record_mcount),  just execute $(cmd_record_mcount), which is defined as:
+
+	cmd_record_mcount =                                             \
+        if [ "$(findstring $(CC_FLAGS_FTRACE),$(_c_flags))" =   \   
+             "$(CC_FLAGS_FTRACE)" ]; then                       \
+                $(sub_cmd_record_mcount)                        \
+        fi;
+        
+        sub_cmd_record_mcount =                                 \
+        if [ $(@) != "scripts/mod/empty.o" ]; then      \   
+                $(objtree)/scripts/recordmcount $(RECORDMCOUNT_FLAGS) "$(@)";   \   
+        fi;
+        
+Now we can match the last sentence of the output with command  above. Note: some of the variable is defined in top makefile: CC_FLAGS_FTRACE, BUILD_C_RECORDMCOUNT.
+
+Finally, we know how a .c file is compiled into .o file. Now let's take a look how linux assemble these .o file into built-in.o. That is the rule we have mentioned above:
+
+	$(builtin-target): $(obj-y) FORCE
+		$(call if_changed,link_o_target)
+
+Expand the recipe:
+
+	$(echo-cmd) $(cmd_$(1));            \
+	printf '%s\n' 'cmd_$@ := $(make-cmd)' > $(dot-target).cmd, @:)
+
+"$(echo-cmd)" basically is
+>echo $(quiet_cmd_link_o_target)"
+
+"$(cmd_$(1))" is doing the most important thing
+>cmd_link_o_target
+
+"printf '%s\n' 'cmd_$@ := $(make-cmd)' > $(dot-target).cmd" is
+> printf '%s\n' 'cmd_init/built-in.o = $(cmd_link_o_target)' > init/.built-in.o.cmd
+
+cmd_link_o_target is defined in Makefile.build
+
+	# If the list of objects to link is empty, just create an empty built-in.o
+	cmd_link_o_target = $(if $(strip $(obj-y)),\
+                      $(cmd_make_builtin) $@ $(filter $(obj-y), $^) \
+                      $(cmd_secanalysis),\
+                      $(cmd_make_empty_builtin) $@)
+
+
+
+
+### TBD
+
+1. cmd_and_fixdep, gcc -MD
 
 >hostlibs, hostlibs-y, hostlibs-m
 
