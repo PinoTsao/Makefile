@@ -1,0 +1,49 @@
+### 此笔记用来记录各种小问题的分析 ###
+
+Q1: arch/x86 目录下编译流程分析
+Makefile
+$(vmlinux-dirs): prepare scripts
+         $(Q)$(MAKE) $(build)=$@
+----->
+arch/x86: xxx yyy
+         make -f $(srctree)/scripts/Makefile.build obj=arch/x86
+
+scripts/Makefile.build
+src=obj=kbuuild-dir = arch/x86
+kbuild-file = arch/x86/Kbuild
+
+Makefile.lib
+arch/x86/Kbuild 中定义的 obj-y 都是目录(arch/x86 下的子目录), obj-y=entry/ realmode/ kernel/ mm/ crypto/ platform/ net/ 等等
+经过处理:
+obj-y := $(patsubst %/, %/built-in.o, $(obj-y)), 将 obj-y 中的目录, 变为 entry/built-in.o kernel/built-in.o mm/built-in.o 等,其余不变
+subdir-ym := $(sort $(subdir-y) $(subdir-m)), subdir-ym 的值是 arch/x86下的子目录名, 也即 entry realmode kernel mm 等等
+subdir-obj-y := $(filter %/built-in.o, $(obj-y)), subdir-obj-y 的值是所有的 foo/built-in.o
+obj-dirs := $(dir $(multi-objs) $(obj-y)), obj-dirs 的值是最初 obj-y 的定义 entry/ realmode/ kernel/ 等等
+最后给上面的变量都加上$(obj), 即 arch/x86 作为前缀
+
+回到Makefile.build
+__build: $(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y)) \
+          $(if $(KBUILD_MODULES),$(obj-m) $(modorder-target)) \
+          $(subdir-ym) $(always)
+--->
+__build: arch/x86/built-in.o entry realmode kernel mm [expand from subdir-ym]
+
+# To build objects in subdirs, we need to descend into the directories
+$(sort $(subdir-obj-y)): $(subdir-ym) ;
+$(subdir-ym):
+         $(Q)$(MAKE) $(build)=$@
+由此看出, 将对 subdir 进行 recursive 的 build, 直到最底层的文件夹. 每一层文件夹下的所有 .o 文件被链接成 built-in.o 文件.
+这里有一个小的key point就是, 在每一层文件夹下 build 时, obj-y 的值在 Makefile.lib 中被处理为当前文件夹下所有 .o 和子文件夹下的built-in.o
+
+Q2: init/Makefle 中的 mounts-y 是如何被编译到的?
+the magic 在 Makefile.lib 中的这句:
+# if $(foo-objs) exists, foo.o is a composite object
+multi-used-y := $(sort $(foreach m,$(obj-y), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y))), $(m))))
+obj-y 在 init/Makefile中被赋值, 其中有一个是 mounts.o, 但是不存在对应的 mount.c, mounts.o 其实是由$(mounts-y)中的文件一起编译而来, 所以它是一个 composite object
+所以 multi-used-y = mounts.o, 因为存在 mounts-y. 所以multi-used = mounts.o, 再经过 addprefix 操作, multi-used-y = init/mounts.o
+因为 multi-objs-y := $(foreach m, $(multi-used-y), $($(m:.o=-objs)) $($(m:.o=-y))) , 所以 multi-objs-y = $(mounts-y), 再经过 addprefix 操作, multi-objs-y = init/$(mounts-y)
+重点来了, Makefile.build 中有如下代码
+$(multi-used-y): FORCE
+        $(call if_changed,link_multi-y)
+$(call multi_depend, $(multi-used-y), .o, -objs -y) # 重点之一, multi_depend 中使用了 eval 函数, 定义了一条 rule 用来描述 $(multi-used-y) 的依赖关系, 这个rule 由 multi_depend生成, 长这样 $(multi-used-y): 所有依赖的.o 文件
+所以, 和上面的 $(multi-used-y): FORCE 是同一个target, 同一个target的 rule会被合并, prerequisite 会被合并, 然后在 变量 link_multi_deps 的 $^ 中, 就是合并后的所有 prerequisites
