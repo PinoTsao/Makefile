@@ -344,6 +344,7 @@ KCONFIG_CONFIG	?= .config
 export KCONFIG_CONFIG
 
 # SHELL used by kbuild
+# [pino] Take my desktop for example, CONFIG_SHELL = $BASH = /usr/bin/bash [oniq]
 CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
 	  else if [ -x /bin/bash ]; then echo /bin/bash; \
 	  else echo sh; fi ; fi)
@@ -806,13 +807,14 @@ endif
 KBUILD_CFLAGS   += $(call cc-option, -fno-var-tracking-assignments)
 
 ifdef CONFIG_DEBUG_INFO
-ifdef CONFIG_DEBUG_INFO_SPLIT
-KBUILD_CFLAGS   += $(call cc-option, -gsplit-dwarf, -g)
-else
-KBUILD_CFLAGS	+= -g
-endif
+    ifdef CONFIG_DEBUG_INFO_SPLIT
+    KBUILD_CFLAGS   += $(call cc-option, -gsplit-dwarf, -g)
+    else
+    KBUILD_CFLAGS	+= -g
+    endif
 KBUILD_AFLAGS	+= -Wa,-gdwarf-2
 endif
+
 ifdef CONFIG_DEBUG_INFO_DWARF4
 KBUILD_CFLAGS	+= $(call cc-option, -gdwarf-4,)
 endif
@@ -823,21 +825,21 @@ KBUILD_CFLAGS 	+= $(call cc-option, -femit-struct-debug-baseonly) \
 endif
 
 ifdef CONFIG_FUNCTION_TRACER
-ifndef CC_FLAGS_FTRACE
-CC_FLAGS_FTRACE := -pg
-endif
+    ifndef CC_FLAGS_FTRACE
+    CC_FLAGS_FTRACE := -pg
+    endif
 export CC_FLAGS_FTRACE
-ifdef CONFIG_HAVE_FENTRY
-CC_USING_FENTRY	:= $(call cc-option, -mfentry -DCC_USING_FENTRY)
-endif
+    ifdef CONFIG_HAVE_FENTRY
+    CC_USING_FENTRY	:= $(call cc-option, -mfentry -DCC_USING_FENTRY)
+    endif
 KBUILD_CFLAGS	+= $(CC_FLAGS_FTRACE) $(CC_USING_FENTRY)
 KBUILD_AFLAGS	+= $(CC_USING_FENTRY)
-ifdef CONFIG_DYNAMIC_FTRACE
+    ifdef CONFIG_DYNAMIC_FTRACE
 	ifdef CONFIG_HAVE_C_RECORDMCOUNT
-		BUILD_C_RECORDMCOUNT := y
-		export BUILD_C_RECORDMCOUNT
+	BUILD_C_RECORDMCOUNT := y
+	export BUILD_C_RECORDMCOUNT
 	endif
-endif
+    endif
 endif
 
 # We trigger additional mismatches with less inlining
@@ -1028,6 +1030,8 @@ export LDFLAGS_vmlinux
 # used by scripts/pacmage/Makefile
 export KBUILD_ALLDIRS := $(sort $(filter-out arch/%,$(vmlinux-alldirs)) arch Documentation include samples scripts tools)
 
+# [pino] KBUILD_VMLINUX_INIT is the .o file defined in arch/$(SRCARCH)/Makefile
+# and init/built-in.o. $(KBUILD_VMLINUX_MAIN) are mostly foo/built-in.o [oniq]
 vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_INIT) $(KBUILD_VMLINUX_MAIN)
 
 # Include targets which we want to execute sequentially if the rest of the

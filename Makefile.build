@@ -540,6 +540,7 @@ endif
 #  or
 #    <composite-object>-m    := <list of .o files>
 #  The -m syntax only works if <composite object> is a module
+# [pino] $^: the names of all the prerequisites, with spaces between them. [oniq]
 link_multi_deps =                     \
 $(filter $(addprefix $(obj)/,         \
 $($(subst $(obj)/,,$(@:.o=-objs)))    \
@@ -559,6 +560,11 @@ endif
 quiet_cmd_link_multi-m = LD [M]  $@
 cmd_link_multi-m = $(cmd_link_multi-link)
 
+# [pino] There is quite a few tricks here.
+# 1. Multiple Rules with same target: refer "4.11 Multiple Rules for One Target"
+#    of `info make`
+# 2. multi_depend use eval function to produce a rule without recipe to decribe
+#    the dependecy between target and prerequisites.
 $(multi-used-y): FORCE
 	$(call if_changed,link_multi-y)
 $(call multi_depend, $(multi-used-y), .o, -objs -y)

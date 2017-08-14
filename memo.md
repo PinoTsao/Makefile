@@ -316,13 +316,13 @@ core-y, libs-y, drivers-y, net-y, virt-y is defined in top makefile as following
 	virt-y          := virt/
 	virt-y          := $(patsubst %/, %/built-in.o, $(virt-y))	
 
-In a word, $(vmlinux-deps) actually are the real files.
+In a word, $(vmlinux-deps) actually are the real files, which mostly are dir/built-in.o.
 And there is following in top makefile:
 
 	vmlinux-dirs    := $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
 	                      $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
 	                      $(net-y) $(net-m) $(libs-y) $(libs-m) $(virt-y)))
-	# for example, foo/bar/ will be foo/bar
+	# [pino] for example, foo/bar/ will be foo/bar
 		    
 	# The actual objects are generated when descending,
 	# make sure no implicit rule kicks in
@@ -351,7 +351,7 @@ But in the code above, we can find something interesting, that is:
 	$(vmlinux-dirs): prepare scripts
 		$(Q)$(MAKE) $(build)=$@
 
-From the makefile, we already know that all the files that need to compile are located in $(vmlinux-dirs), then this rule to go into each of the dir to build each of the $(vmlinux-deps). Let's take init/ for example, continue the analysis.
+From the makefile, we already know that all the files that need to compile are located in $(vmlinux-dirs), then this rule to go into each of the dir to build each of the $(vmlinux-deps). Let's take init/ for example to continue the analysis.
 The following analysis will mainly in scripts/Makefile.build
 
 let's look at Makefile.build, when build init/, 
@@ -429,10 +429,10 @@ so, the real executed command is rule_cc_o_c, which is defined in Makefile.build
 
 If you want check the detail of compiling .c to .o, we can use
 
-	make init/built-in.o > tmp.txt
+	make -n vmlinux > vmlinux.txt
 	
 to see every detail, and compare it with rule_cc_o_c, we will eventually know how .c is compiled to .o file.
-Now we take the init/main.o for  example, to check the compilation detail. The following piece is taken from make init/built-in.o [Insert characters "[delimeter]" as delimeter for easy reading]
+Now we take the init/main.o for example, to check the compilation detail. The following piece is taken from `make vmlinux` [Insert characters "[delimeter]" as delimeter for easy reading]
 
 	make -f ./scripts/Makefile.build obj=init
 	set -e;            echo '  CC      init/main.o'; gcc -Wp,-MD,init/.main.o.d  -nostdinc -isystem /usr/lib/gcc/x86_64-redhat-linux/6.3.1/include -I./arch/x86/include -I./arch/x86/include/generated/uapi -I./arch/x86/include/generated  -I./include -I./arch/x86/include/uapi -I./include/uapi -I./include/generated/uapi -include ./include/linux/kconfig.h -D__KERNEL__ -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -Werror-implicit-function-declaration -Wno-format-security -std=gnu89 -fno-PIE -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -m64 -falign-jumps=1 -falign-loops=1 -mno-80387 -mno-fp-ret-in-387 -mpreferred-stack-boundary=3 -mskip-rax-setup -mtune=generic -mno-red-zone -mcmodel=kernel -funit-at-a-time -DCONFIG_AS_CFI=1 -DCONFIG_AS_CFI_SIGNAL_FRAME=1 -DCONFIG_AS_CFI_SECTIONS=1 -DCONFIG_AS_FXSAVEQ=1 -DCONFIG_AS_SSSE3=1 -DCONFIG_AS_CRC32=1 -DCONFIG_AS_AVX=1 -DCONFIG_AS_AVX2=1 -DCONFIG_AS_AVX512=1 -DCONFIG_AS_SHA1_NI=1 -DCONFIG_AS_SHA256_NI=1 -pipe -Wno-sign-compare -fno-asynchronous-unwind-tables -fno-delete-null-pointer-checks -Wno-frame-address -O2 --param=allow-store-data-races=0 -DCC_HAVE_ASM_GOTO -fplugin=./scripts/gcc-plugins/latent_entropy_plugin.so -DLATENT_ENTROPY_PLUGIN -Wframe-larger-than=2048 -fstack-protector-strong -Wno-unused-but-set-variable -Wno-unused-const-variable -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-var-tracking-assignments -g -pg -mfentry -DCC_USING_FENTRY -Wdeclaration-after-statement -Wno-pointer-sign -fno-strict-overflow -fconserve-stack -Werror=implicit-int -Werror=strict-prototypes -Werror=date-time -Werror=incompatible-pointer-types -Werror=designated-init -fno-function-sections -fno-data-sections    -DKBUILD_BASENAME='"main"'  -DKBUILD_MODNAME='"main"' -c -o init/main.o init/main.c;    [delimeter]    scripts/basic/fixdep init/.main.o.d init/main.o 'gcc -Wp,-MD,init/.main.o.d  -nostdinc -isystem /usr/lib/gcc/x86_64-redhat-linux/6.3.1/include -I./arch/x86/include -I./arch/x86/include/generated/uapi -I./arch/x86/include/generated  -I./include -I./arch/x86/include/uapi -I./include/uapi -I./include/generated/uapi -include ./include/linux/kconfig.h -D__KERNEL__ -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -Werror-implicit-function-declaration -Wno-format-security -std=gnu89 -fno-PIE -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -m64 -falign-jumps=1 -falign-loops=1 -mno-80387 -mno-fp-ret-in-387 -mpreferred-stack-boundary=3 -mskip-rax-setup -mtune=generic -mno-red-zone -mcmodel=kernel -funit-at-a-time -DCONFIG_AS_CFI=1 -DCONFIG_AS_CFI_SIGNAL_FRAME=1 -DCONFIG_AS_CFI_SECTIONS=1 -DCONFIG_AS_FXSAVEQ=1 -DCONFIG_AS_SSSE3=1 -DCONFIG_AS_CRC32=1 -DCONFIG_AS_AVX=1 -DCONFIG_AS_AVX2=1 -DCONFIG_AS_AVX512=1 -DCONFIG_AS_SHA1_NI=1 -DCONFIG_AS_SHA256_NI=1 -pipe -Wno-sign-compare -fno-asynchronous-unwind-tables -fno-delete-null-pointer-checks -Wno-frame-address -O2 --param=allow-store-data-races=0 -DCC_HAVE_ASM_GOTO -fplugin=./scripts/gcc-plugins/latent_entropy_plugin.so -DLATENT_ENTROPY_PLUGIN -Wframe-larger-than=2048 -fstack-protector-strong -Wno-unused-but-set-variable -Wno-unused-const-variable -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-var-tracking-assignments -g -pg -mfentry -DCC_USING_FENTRY -Wdeclaration-after-statement -Wno-pointer-sign -fno-strict-overflow -fconserve-stack -Werror=implicit-int -Werror=strict-prototypes -Werror=date-time -Werror=incompatible-pointer-types -Werror=designated-init -fno-function-sections -fno-data-sections    -DKBUILD_BASENAME='\''"main"'\''  -DKBUILD_MODNAME='\''"main"'\'' -c -o init/main.o init/main.c' > init/.main.o.tmp; rm -f init/.main.o.d; mv -f init/.main.o.tmp init/.main.o.cmd;    [delimeter]    ./tools/objtool/objtool check "init/main.o";    [delimeter]    if [ "-pg" = "-pg" ]; then if [ init/main.o != "scripts/mod/empty.o" ]; then ./scripts/recordmcount  "init/main.o"; fi; fi;
@@ -533,12 +533,30 @@ cmd_link_o_target is defined in Makefile.build
                       $(cmd_secanalysis),\
                       $(cmd_make_empty_builtin) $@)
 
+	# And cmd_make_builtin is defined as:
+	cmd_make_builtin = $(LD) $(ld_flags) -r -o
 
+Compare with vmlinux.txt, I think one will understand how the target(init/built-in.o) is linked.
 
 
 ### TBD
 
 1. cmd_and_fixdep, gcc -MD
+     done.
+2. hostlibs, hostlibs-y, hostlibs-m?
 
->hostlibs, hostlibs-y, hostlibs-m
+3. Know unifdef: https://dotat.at/prog/unifdef/
+
+4. In Makefile.lib, there is $(CFLAGS_$(basetarget).o) & $(CFLAGS_REMOVE_$(basetarget).o),
+$(CFLAGS_$(basetarget).o) specify the specific compilation flags for certain .o file. 
+$(CFLAGS_REMOVE_$(basetarget).o) removes the specific compilation flags for certain .o file.
+
+5. how is the "generated" dir created?
+
+6. how is mounts-y in init/Makefile got built???
+
+7. makeifle 中的 export 指令 导出的变量可以在 shell 脚本中看到?
+     Refer 6.10 of `info make`: When `make' runs a recipe, variables defined in the makefile are placed into the environment of each shell.
+     `export':  Tell `make' to export all variables to child processes by default.
+     所以, 当recipe执行的时候, recepi所在的子进程可以看到makeifle export出的变量
 
