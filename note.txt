@@ -1,6 +1,6 @@
 ### 此笔记用来记录各种小问题的分析 ###
 
-Q1: arch/x86 目录下编译流程分析
+Q1. arch/x86 目录下编译流程分析
 Makefile
 $(vmlinux-dirs): prepare scripts
          $(Q)$(MAKE) $(build)=$@
@@ -35,7 +35,7 @@ $(subdir-ym):
 由此看出, 将对 subdir 进行 recursive 的 build, 直到最底层的文件夹. 每一层文件夹下的所有 .o 文件被链接成 built-in.o 文件.
 这里有一个小的key point就是, 在每一层文件夹下 build 时, obj-y 的值在 Makefile.lib 中被处理为当前文件夹下所有 .o 和子文件夹下的built-in.o
 
-Q2: init/Makefle 中的 mounts-y 是如何被编译到的?
+Q2. init/Makefle 中的 mounts-y 是如何被编译到的?
 the magic 在 Makefile.lib 中的这句:
 # if $(foo-objs) exists, foo.o is a composite object
 multi-used-y := $(sort $(foreach m,$(obj-y), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y))), $(m))))
@@ -47,3 +47,124 @@ $(multi-used-y): FORCE
         $(call if_changed,link_multi-y)
 $(call multi_depend, $(multi-used-y), .o, -objs -y) # 重点之一, multi_depend 中使用了 eval 函数, 定义了一条 rule 用来描述 $(multi-used-y) 的依赖关系, 这个rule 由 multi_depend生成, 长这样 $(multi-used-y): 所有依赖的.o 文件
 所以, 和上面的 $(multi-used-y): FORCE 是同一个target, 同一个target的 rule会被合并, prerequisite 会被合并, 然后在 变量 link_multi_deps 的 $^ 中, 就是合并后的所有 prerequisites
+
+
+Q3: make *config 的产物只是 .config 吗？
+目前推测：Yes， 如需确认，需要分析 scripts/kconfig/ 下的source code
+
+Q4. make prepare 时候到底都做了什么事情？
+列一下, prepare 的 target 依赖关系。
+------------------------------------------------------------------
+$(vmlinux-dirs): prepare scripts
+        $(Q)$(MAKE) $(build)=$@
+
+prepare: prepare0 prepare-objtool
+
+prepare0: archprepare gcc-plugins
+         $(Q)$(MAKE) $(build)=.
+
+archprepare: archheaders archscripts prepare1 scripts_basic
+
+# archXXX is defined in arch/$(SRCARCH)/Makefile
+archheaders:
+         $(Q)$(MAKE) $(build)=arch/x86/entry/syscalls all
+
+# gcc-plugins is defined in scripts/Makefile.gcc-plugins
+gcc-plugins: scripts_basic gcc-plugins-check
+ifdef CONFIG_GCC_PLUGINS
+        $(Q)$(MAKE) $(build)=scripts/gcc-plugins
+endif
+        @:
+
+scripts_basic:
+        $(Q)$(MAKE) $(build)=scripts/basic
+        $(Q)rm -f .tmp_quiet_recordmcount
+
+prepare-objtool: $(objtool_target)
+------------------------------------------------------------------
+
+根据这些依赖关系，绘制下 flow chart(rule 的执行顺序是深度优先)：
+prepare<--|--prepare0<--|--archprepare<--|--archheaders[in arch/x86/Makefile]
+          |             |                |        $(Q)$(MAKE) $(build)=arch/x86/entry/syscalls all # 用来生成 arch/x86/include/generated/ 下的头文件
+          |             |                |
+          |             |                |--archscripts<--scripts_basic[repeat_1]
+          |             |                |        $(Q)$(MAKE) $(build)=arch/x86/tools relocs
+          |             |                |
+          |             |                |--prepare1<--|--prepare2<--|--prepare3<--|--include/config/kernel.release<--include/config/auto.conf[repeated_2]
+          |             |                |             |             |
+          |             |                |             |             |--prepare-compiler-check
+          |             |                |             |             |
+          |             |                |             |             |--outputmakefile
+          |             |                |             |             |[此target/rule只有在使用separate output directory生效]
+          |             |                |             |             |
+          |             |                |             |             |--asm-generic
+          |             |                |             |             |        [long_recipe_0]
+          |             |                |             |             |        [long_recipe_1]
+          |             |                |             |
+          |             |                |             |
+          |             |                |             |--$(version_h)<--$(srctree)/Makefile
+          |             |                |             |        # version_h = include/generated/uapi/linux/version.h
+          |             |                |             |        $(call filechk,version.h)
+          |             |                |             |        $(Q)rm -f $(old_version_h)
+          |             |                |             |
+          |             |                |             |--include/generated/utsrelease.h<--include/config/kernel.release
+          |             |                |             |        $(call filechk,utsrelease.h)
+          |             |                |             |
+          |             |                |             |--include/config/auto.conf[repeat_2]<--|--$(KCONFIG_CONFIG)
+          |             |                |             |  [match include/config/%.conf]        |[.config, produced by make *config]
+          |             |                |             |                                       |
+          |             |                |             |                                       |<--include/config/auto.conf.cmd
+          |             |                |             |                                       |[对于clean src tree, 此时此文件还不存在]
+          |             |                |             |
+          |             |                |             |        $(Q)$(MAKE) -f $(srctree)/Makefile silentoldconfig
+          |             |                |             |        [silentoldconfig matches %config, 会创建include/config 和 include/generated目录]
+          |             |                |
+          |             |                |
+          |             |                |        $(Q)mkdir -p $(MODVERDIR) $(if $(KBUILD_MODULES),; rm -f $(MODVERDIR)/*)
+          |             |                |        [MODVERDIR只有编译KBUILD_EXTMOD时才有值]
+          |             |                |
+          |             |                |
+          |             |                |
+          |             |                |
+          |             |                |
+          |             |                |--scripts_basic[repeat_1]
+          |             |                |        $(Q)$(MAKE) $(build)=scripts/basic # build fixdep & bin2c under scripts/basic
+          |             |                |        $(Q)rm -f .tmp_quiet_recordmcount
+          |             |
+          |             |# defined in arch/x86/Makefile
+          |             |ifeq ($(CONFIG_KEXEC_FILE),y)
+          |             |        $(Q)$(MAKE) $(build)=arch/x86/purgatory arch/x86/purgatory/kexec-purgatory.c
+          |             |endif
+          |             |
+          |             |
+          |             |--gcc-plugins<--|--scripts_basic[repeat_1]
+          |             |                |
+          |             |                |
+          |             |                |--gcc-plugins-check
+          |             |                |ifdef CONFIG_GCC_PLUGINS
+          |             |                |        $(Q)$(MAKE) $(build)=scripts/gcc-plugins
+          |             |                |endif
+          |
+          |
+          |        $(Q)$(MAKE) $(build)=.
+          |
+          |
+          |
+          |
+          |
+          |
+          |
+          |
+          |--prepare-objtool
+
+
+[long_recipe_0]: $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic src=asm obj=arch/$(SRCARCH)/include/generated/asm
+[long_recipe_1]: $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic src=uapi/asm obj=arch/$(SRCARCH)/include/generated/uapi/asm
+
+
+Q5. Empty recipes 和 Force target 的关系，区别？
+
+
+Q6. include/config/auto.conf  include/config/auto.conf.cmd ?
+include/config/auto.conf.cmd 由代码生成： conf_write_autoconf->file_write_dep("include/config/auto.conf.cmd");
+
