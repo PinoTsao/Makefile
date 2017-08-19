@@ -164,7 +164,54 @@ prepare<--|--prepare0<--|--archprepare<--|--archheaders[in arch/x86/Makefile]
 
 Q5. Empty recipes 和 Force target 的关系，区别？
 
-
 Q6. include/config/auto.conf  include/config/auto.conf.cmd ?
 include/config/auto.conf.cmd 由代码生成： conf_write_autoconf->file_write_dep("include/config/auto.conf.cmd");
 
+Q7. 目标 silentoldconf 的处理流程?
+因为 target include/config/auto.conf match 了下面的 rule
+
+include/config/%.conf: $(KCONFIG_CONFIG) include/config/auto.conf.cmd
+         $(Q)$(MAKE) -f $(srctree)/Makefile silentoldconfig
+
+所以, 有必要分析下 silentoldconfig 的处理流程细节.
+
+在 scripts/kconfig/Makefile 中有如下代码:
+silentoldconfig: $(obj)/conf
+        $(Q)mkdir -p include/config include/generated
+        $(Q)test -e include/generated/autoksyms.h || \
+            touch   include/generated/autoksyms.h
+        $< $(silent) --$@ $(Kconfig)
+
+可以看出, silentoldconfig 依赖于 scripts/kconfig/conf, 下面分析 conf 的生成过程.
+conf-objs       := conf.o  zconf.tab.o  # 但其实没有 zconf.tab.c 文件, 需要生成
+hostprogs-y := conf nconf mconf kxgettext qconf gconf
+
+$(obj)/zconf.tab.o: $(obj)/zconf.lex.c $(obj)/zconf.hash.c  # prerequisites中的2个 .c 也是不存在的, 也需要生成
+
+target $(obj)/zconf.tab.o match 了 Makefile.build 中的这条最常用的 rule:
+
+$(obj)/%.o: $(src)/%.c $(recordmcount_source) $(objtool_obj) FORCE
+
+说明 $(obj)/zconf.tab.o 也依赖于 $(obj)/zconf.tab.c.  关于target $(obj)/zconf.tab.o 的 两条 rule 合并在一起(合并 prerequisites),
+它的 prerequisites 变成了:  $(obj)/zconf.tab.c  $(obj)/zconf.lex.c  $(obj)/zconf.hash.c, 这三个文件并不存在, 所以要找到生成他们的 rule.
+在 Makefile.lib 有这么一条 rule, 可以 match 这三个 target 文件:
+
+$(obj)/%: $(src)/%_shipped
+        $(call cmd,shipped)
+
+直接用cat转换了下后缀名, shipped 文件变成了 .c 文件.
+这里的trick是:  zconf.tab.c 中 include 了很多 .c 文件!!!
+#include "zconf.hash.c"
+#include "zconf.lex.c"
+#include "util.c"
+#include "confdata.c"
+#include "expr.c"
+#include "symbol.c"
+#include "menu.c"
+所以 这些 .c 文件不会被编译
+
+宗上, silentoldconfig 的实际结果是 /scripts/kconfig/conf --silentoldconfig Kconfig
+在代码 scripts/kconfig/conf.c 中有如下comment:
+/* silentoldconfig is used during the build so we shall update autoconf.
+ * All other commands are only used to generate a config.
+ */
