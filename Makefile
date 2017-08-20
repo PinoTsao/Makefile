@@ -763,6 +763,7 @@ else
   stackp-flag := $(call cc-option, -fno-stack-protector)
 endif
 endif
+
 # Find arch-specific stack protector compiler sanity-checking script.
 ifdef CONFIG_CC_STACKPROTECTOR
   stackp-path := $(srctree)/scripts/gcc-$(SRCARCH)_$(BITS)-has-stack-protector.sh

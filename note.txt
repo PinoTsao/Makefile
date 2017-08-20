@@ -88,11 +88,12 @@ prepare<--|--prepare0<--|--archprepare<--|--archheaders[in arch/x86/Makefile]
           |             |                |        $(Q)$(MAKE) $(build)=arch/x86/entry/syscalls all # 用来生成 arch/x86/include/generated/ 下的头文件
           |             |                |
           |             |                |--archscripts<--scripts_basic[repeat_1]
-          |             |                |        $(Q)$(MAKE) $(build)=arch/x86/tools relocs
+          |             |                |        $(Q)$(MAKE) $(build)=arch/x86/tools relocs # 显而易见，生成 arch/x86/tools 下的 relocs 工具
           |             |                |
-          |             |                |--prepare1<--|--prepare2<--|--prepare3<--|--include/config/kernel.release<--include/config/auto.conf[repeated_2]
+          |             |                |--prepare1<--|--prepare2<--|--prepare3<--|--include/config/kernel.release<--include/config/auto.conf[repeated_2]<--..
+          |             |                |             |             | # [Target auto.conf 的处理流程分析在下面]
           |             |                |             |             |
-          |             |                |             |             |--prepare-compiler-check
+          |             |                |             |             |--prepare-compiler-check # stack protector 相关的check. 略过
           |             |                |             |             |
           |             |                |             |             |--outputmakefile
           |             |                |             |             |[此target/rule只有在使用separate output directory生效]
@@ -164,10 +165,8 @@ prepare<--|--prepare0<--|--archprepare<--|--archheaders[in arch/x86/Makefile]
 
 Q5. Empty recipes 和 Force target 的关系，区别？
 
-Q6. include/config/auto.conf  include/config/auto.conf.cmd ?
-include/config/auto.conf.cmd 由代码生成： conf_write_autoconf->file_write_dep("include/config/auto.conf.cmd");
 
-Q7. 目标 silentoldconf 的处理流程?
+Q6. 目标 silentoldconf 的处理流程?
 因为 target include/config/auto.conf match 了下面的 rule
 
 include/config/%.conf: $(KCONFIG_CONFIG) include/config/auto.conf.cmd
@@ -215,3 +214,16 @@ $(obj)/%: $(src)/%_shipped
 /* silentoldconfig is used during the build so we shall update autoconf.
  * All other commands are only used to generate a config.
  */
+
+Q7. include/config/auto.conf  include/config/auto.conf.cmd 等文件是如何生成的？
+这两个以及其他若干文件是在 `make silentoldconfig` 的过程中生成的. 由Q6可知，目标 silentoldconfig 会创建
+include/config & include/generated 目录，最终执行的命令是 scripts/kconfig/conf --silentoldconfig Kconfig.
+由可执行程序 conf 的 main 函数(conf.c)可以看到， 只有在 silentoldconfig 时， 才会调用函数 conf_write_autoconf，
+这个函数就是关键所在了，在此函数中，会生成:
+include/config/auto.conf.cmd
+
+include/generated/autoconf.h
+include/config/tristate.conf
+include/config/auto.conf
+
+每次更新 .config 后去重新 make 时，都会更新上面倒数3个文件。
