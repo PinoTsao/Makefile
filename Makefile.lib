@@ -47,7 +47,9 @@ obj-m		:= $(filter-out %/, $(obj-m))
 subdir-ym	:= $(sort $(subdir-y) $(subdir-m))
 
 # if $(foo-objs) exists, foo.o is a composite object
-# [pino] Refer 6.3.1 Substitution References [oniq]
+# [pino] Refer 6.3.1 Substitution References of `info make`.
+# Refer "3.3 Loadable module goals - obj-m" of Documentation/kbuild/makefiles.txt
+# to understand "$($(m:.o=-y)))" [oniq]
 multi-used-y := $(sort $(foreach m,$(obj-y), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y))), $(m))))
 multi-used-m := $(sort $(foreach m,$(obj-m), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y)) $($(m:.o=-m))), $(m))))
 multi-used   := $(multi-used-y) $(multi-used-m)
@@ -270,7 +272,9 @@ cmd_objcopy = $(OBJCOPY) $(OBJCOPYFLAGS) $(OBJCOPYFLAGS_$(@F)) $< $@
 
 # Gzip
 # ---------------------------------------------------------------------------
-
+# [pino] cmd_gzip has a trick here: if 1st command fail, then execute
+# the later one, which delete the output of 1st command, then return
+# false. Many place use this trick. [oniq]
 quiet_cmd_gzip = GZIP    $@
 cmd_gzip = (cat $(filter-out FORCE,$^) | gzip -n -f -9 > $@) || \
 	(rm -f $@ ; false)

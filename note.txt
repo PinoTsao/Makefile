@@ -1,6 +1,374 @@
-### 此笔记用来记录各种小问题的分析 ###
+# Kbuild/Kconfig/kernel build 的笔记
 
-Q1. arch/x86 目录下编译流程分析
+## target flowchart
+
+Tips：
+1. 流程分析基于假设 make 发生在源码目录, 没有 make O=
+2. 流程分析基于 x86 64，并且不是编译单个存在于单独文件夹下的 module
+3. 流程分析基于普通用户编译内核时最小白的方式：
+   make menuconfig//modules_install/install
+3. flowchart 中，以 # 开始的部分为注释； [] 为 reference
+4. Makefile 执行流程的规则是深度优先
+5. 命令行执行 make 时，除了 target，没有其他选项
+6. target flowchart 只列出结果，详细分析在别处
+7. 为防止 flowchart 纵向过长不便阅读等原因，一个大的 chart 会被分成多个 part
+8. target 后面的字符： <*> 表示此 target 在 flowchart 中多次出现，为避免重复，
+   在 chart 中对它的描述只会有一次，即是此处, 但未必是第一次出现的位置。
+
+### make menuconfig 时
+
+在 Top makefile 中：
+
+config, %config<--|--scripts_basic
+                  |        $(Q)$(MAKE) $(build)=scripts/basic # build fixdep & bin2c under scripts/basic
+                  |        $(Q)rm -f .tmp_quiet_recordmcount
+                  |
+                  |--outputmakefile # 此 rule 只有在 `make O=` 时生效，掠过]
+                  |
+                  |-- [注： 这两个 -- 表示 target FORCE， 下同]
+
+        $(Q)$(MAKE) $(build)=scripts/kconfig $@
+
+
+在 scripts/kconfig/Makefile 中：
+
+menuconfig<--|--$(obj)/mconf
+        $< $(silent) $(Kconfig) # 即 scripts/kconfig/mconf Kconfig
+
+
+### make(或者 make all) 时
+
+在 Top makefile 中, 有一些对流程分析重要的代码需要知道，如下：
+
+        # That's our default target when none is given on the command line
+        _all:
+
+        # 这些 -y 变量在 top Makefile 和 arch/x86/Makefile(head-y) 中定义, 此处不列出
+	export KBUILD_VMLINUX_INIT := $(head-y) $(init-y) #
+	export KBUILD_VMLINUX_MAIN := $(core-y) $(libs-y) $(drivers-y) $(net-y) $(virt-y)
+	export KBUILD_LDS          := arch/$(SRCARCH)/kernel/vmlinux.lds
+	vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_INIT) $(KBUILD_VMLINUX_MAIN)
+	
+且经过 top Makefile 的处理，所有 -y 变量(除 head-y), 都被 evaluate 为 */built-in.o，
+所以，vmlinux-deps 的值包含了完整路径的文件名。
+
+part1:
+_all<--|--all<--|--vmlinux<--|--scripts/link-vmlinux.sh
+                |            |
+                |            |--vmlinux_prereq<--|--$(vmlinux-deps)<*>--[part2]
+                |            |                   |
+                |            |                   |--FORCE
+                |            |        # 根据.config 中的配置，有若干种 recipe。不列出
+                |            |
+                |            |--$(vmlinux-deps)
+                |            |
+                |            |--FORCE
+                |
+                |--bzImage # 定义在 arch/x86/Makefile
+                |
+                |--modules # .config 中配置 CONFIG_MODULES 时生效
+                |
+
+
+下面自然是分析所有 built-in.o 的生成，需要了解的相关代码：
+
+	vmlinux-dirs    := $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+			   $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+                           $(net-y) $(net-m) $(libs-y) $(libs-m) $(virt-y)))
+	# The actual objects are generated when descending,
+	# make sure no implicit rule kicks in
+	$(sort $(vmlinux-deps)): $(vmlinux-dirs) ;
+
+part2:
+$(vmlinux-deps)<--|--$(vmlinux-dirs)<--|--prepare<--|--prepare0<--|--archprepare<--[part3]
+                  |                    |            |             |
+                  |                    |            |             |--gcc-plugins
+                  |                    |            |             |
+                  |                    |            |
+                  |                    |            |       $(Q)$(MAKE) $(build)=.
+                  |                    |            |       # Refer 顶层目录下的 Kbuild 文件来了解此 recipe 做的事情
+                  |                    |            |
+                  |                    |            |--prepare-objtool<--$(objtool_target) # tools/objtool
+                  |                    |            |        NO RECIPE
+                  |                    |            |
+                  |                    |
+                  |                    |
+                  |                    |--scripts<--|--scripts_basic
+                  |                    |            |
+                  |                    |            |--include/config/auto.conf
+                  |                    |            |
+                  |                    |            |--include/config/tristate.conf
+                  |                    |            |
+                  |                    |            |--asm-generic
+                  |                    |            |
+                  |                    |            |--gcc-plugins
+                  |                    |            |
+                  |                    |        $(Q)$(MAKE) $(build)=$(@)
+                  |                    |        # 这里的 $(@) 不常见，其实就是 $@
+                  |                    |        # 编译 scripts/ 目录下的各种工具
+                  |                    |
+                  |        $(Q)$(MAKE) $(build)=$@
+                  |        # descend into 每一个 vmlinux-dirs，编译相应的 built-in.o
+                  |        # 后续有文章举例详细分析。
+                  |
+
+单独列出 gcc-plugins 的 rule 作参考：
+gcc-plugins<--|--scripts_basic
+              |
+              |# gcc-plugins 相关流程完全不是重点, 略过.
+              |--gcc-plugins-check
+              |ifdef CONFIG_GCC_PLUGINS
+              |        $(Q)$(MAKE) $(build)=scripts/gcc-plugins
+              |endif
+
+part3:
+archprepare<--|--archheaders # 和下面的 archscripts 都定义在 arch/x86/Makefile 中
+              |        $(Q)$(MAKE) $(build)=arch/x86/entry/syscalls all # [1]
+              |
+              |--archscripts<--|--scripts_basic<*>
+              |                |        $(Q)$(MAKE) $(build)=scripts/basic # build fixdep & bin2c under scripts/basic
+              |                |        $(Q)rm -f .tmp_quiet_recordmcount
+              |                |
+              |        # 显而易见，生成 arch/x86/tools 下的 relocs 工具
+              |        $(Q)$(MAKE) $(build)=arch/x86/tools relocs
+              |
+              |--prepare1<--|--prepare2<--|--prepare3<--|--include/config/kernel.release<--|--include/config/auto.conf
+              |             |             |             |                                  |# 详细描述见 prepare1 的 dependency
+              |             |             |             |                                  |
+              |             |             |             |                                  |--FORCE
+              |             |             |             |                                  |
+              |             |             |             |
+              |             |             |             |        $(call filechk,kernel.release)
+              |             |             |             |
+              |             |             |        # Conditional RECIPE
+              |             |             |
+              |             |             |--prepare-compiler-check # stack protector 相关的check. 略过
+              |             |             |
+              |             |             |--outputmakefile # 仅当使用 make O= 时有效 
+              |             |             |
+              |             |             |--asm-generic # [2]
+              |             |             |        [long_recipe_0]
+              |             |             |        [long_recipe_1]
+              |             |             |
+              |             |        # NO RECIPE
+              |             |
+              |             |--$(version_h)<--$(srctree)/Makefile # [3]
+              |             |        $(call filechk,version.h)
+              |             |        $(Q)rm -f $(old_version_h)
+              |             |
+              |             |--include/generated/utsrelease.h<--|--include/config/kernel.release
+              |             |                                   |# prepare3的依赖，所以此时已经存在
+              |             |                                   |
+              |             |                                   |--FORCE
+              |             |                                   |
+              |             |        $(call filechk,utsrelease.h)
+              |             |
+              |             |--include/config/auto.conf<*><--|--$(KCONFIG_CONFIG)
+              |             |# match include/config/%.conf   |# .config, 由 make *config 生成
+              |             |# Refer Q7 for details          |
+              |             |                                |--include/config/auto.conf.cmd
+              |             |                                |# 在 clean src build时, 此文件还不存在，
+              |             |                                |# 也没有 rule match 此 target, 它在下面的
+              |             |                                |# recipe 中生成，即 make silentoldconfig
+              |             |                                |
+              |             |        $(Q)$(MAKE) -f $(srctree)/Makefile silentoldconfig
+              |             |        # silentoldconfig matches %config, refer Q6 for details
+              |             |
+              |        $(Q)mkdir -p $(MODVERDIR) $(if $(KBUILD_MODULES),; rm -f $(MODVERDIR)/*)
+              |        # MODVERDIR 只有编译 KBUILD_EXTMOD 时才有值, 
+              |        # 在我们的 assumptions 下（tip1,2），此 recipe 不做任何事情
+              |
+              |
+              |--scripts_basic
+              |
+
+
+[long_recipe_0]: $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic src=asm obj=arch/$(SRCARCH)/include/generated/asm
+[long_recipe_1]: $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic src=uapi/asm obj=arch/$(SRCARCH)/include/generated/uapi/asm
+
+[1] 用来生成 arch/x86/include/generated/ 下的部分头文件。先 mkdir arch/x86/include/generated/asm/ 和 arch/x86/include/generated/uapi/asm/,
+分别以 arch/x86/entry/syscalls 下的 syscall_64.tbl & syscall_32.tbl 作为 input, arch/x86/entry/syscalls 下的 syscallhdr.sh & syscalltbl.sh
+作为工具处理上述 input, 生成：
+arch/x86/include/generated/uapi/asm/unistd_32.h
+arch/x86/include/generated/uapi/asm/unistd_x32.h
+arch/x86/include/generated/uapi/asm/unistd_64.h
+&
+arch/x86/include/generated/asm/unistd_32_ia32.h (if defined CONFIG_X86_64)
+arch/x86/include/generated/asm/unistd_64_x32.h (if defined CONFIG_X86_64)
+arch/x86/include/generated/asm/syscalls_32.h
+arch/x86/include/generated/asm/syscalls_64.h (if defined CONFIG_X86_64)
+arch/x86/include/generated/asm/xen-hypercalls.h (if defined CONFIG_XEN)
+
+[2] asm-generic 的处理流程
+    每个 arch 有自己的专用的头文件, 位于 arch/$(SRCARCH)/include 目录, 此目录下还有 asm, uapi, generated 3个目录.
+其中 generated 目录下面所有的目录和文件都是编译过程中创建的, 目录及部分文件是在 archheaders 的处理流程中完成.
+本 target 负责生成其他的头文件. 在 include/asm-generic 目录下存放的是一些 common 的头文件, 如注释所说:
+include/asm-generic contains a lot of files that are used verbatim by several architectures.
+    本 target 的做的事情是在 generated 目录下创建一些 wrapper 文件, wrap include/asm-generic 下的一些文件，具体文件列表
+由 arch/x86/include/asm/Kbuild & arch/x86/include/uapi/asm/Kbuild 说明。
+    经过调查发现，很少有 arch 会在自己的include目录下生成 generated 下面的头文件
+
+[3] 首先， version_h = include/generated/uapi/linux/version.h
+filechk 是一个 Multi-Line Variable，定义在 Kbuild.include 中。filechk 会先 mkdir target 中的目录，本例中也就是：
+include/generated/uapi/linux 目录。然后创建临时文件，如果 target 不存在会创建；若 target 已存在，则比较target和临时文件
+的内容，若内容不一致，则 mv 临时文件 target.
+最后删除 $(old_version_h)，即 include/linux/version.h(不存在？？)
+
+[4] 同[3]类似。
+创建 target 中的目录 include/config，然后 call filechk。调用脚本 scripts/setlocalversion 处理
+include/config/auto.conf 文件，生成了 include/config/kernel.release 文件。
+然后同样的框架流程，生成了 include/generated/utsrelease.h
+
+
+bzImage 的 flowchart:
+
+bzImage<--|--vmlinux # in arch/x86/Makefile
+          |
+ifeq ($(CONFIG_X86_DECODER_SELFTEST),y)
+        $(Q)$(MAKE) $(build)=arch/x86/tools posttest
+endif
+        $(Q)$(MAKE) $(build)=$(boot) $(KBUILD_IMAGE)
+        $(Q)mkdir -p $(objtree)/arch/$(UTS_MACHINE)/boot
+        $(Q)ln -fsn ../../x86/boot/bzImage $(objtree)/arch/$(UTS_MACHINE)/boot/$@
+
+所以 key step 是 $(Q)$(MAKE) $(build)=$(boot) $(KBUILD_IMAGE)，下面是它的 flowchart:
+
+# （src = obj = arch/x86/boot）
+$(obj)/bzImage<--|--$(obj)/setup.bin<--|--$(obj)/setup.elf<--|--$(src)/setup.ld
+                 |                     |                     |
+                 |                     |                     |--$(SETUP_OBJS)
+                 |                     |                     |# SETUP_OBJS 是一堆 .o 的集合，编译过程与其他.o一样。
+                 |                     |                     |
+                 |                     |                     |--FORCE
+                 |                     |                     |
+                 |                     |        # ld -T $(src)/setup.ld $(SETUP_OBJS) -o $@
+                 |                     |        $(call if_changed,ld)
+                 |                     |
+                 |                     |--FORCE
+                 |                     |
+                 |        # objcopy -O binary setup.elf setup.bin
+                 |        $(call if_changed,objcopy)
+                 |
+                 |--$(obj)/vmlinux.bin<--|--$(obj)/compressed/vmlinux<--|--FORCE
+                 |                       |                              |
+                 |                       |        # 生成 compressed 目录下的 vmlinux 文件。
+                 |                       |        # 流程图在下面。文字分析见[5]
+                 |                       |        $(Q)$(MAKE) $(build)=$(obj)/compressed $@
+                 |                       |
+                 |                       |
+                 |                       |--FORCE
+                 |                       |
+                 |        # objcopy -O binary -R .note -R .comment -S ...
+                 |        $(call if_changed,objcopy)
+                 |
+                 |--$(obj)/zoffset.h<--|--$(obj)/compressed/vmlinux
+                 |                     |
+                 |                     |--FORCE
+                 |                     |
+                 |        $(call if_changed,zoffset)
+                 |
+                 |--$(obj)/tools/build
+                 |        # arch/x86/boot/tools/build 是一个 hostprogs。
+                 |        # 以上面3个同级的 prerequisites 作为输入，将setup.bin
+                 |        # 和 vmlinux.bin 写入 bzImage。
+                 |
+                 |--FORCE
+                 |
+        $(call if_changed,image)
+        @$(kecho) 'Kernel: $@ is ready' ' (#'`cat .version`')'
+
+在 arch/x86/boot/compressed/Makefile (默认 gzip 压缩)中：
+# $(vmlinux-objs-y) 中，处理最复杂的是 piggy.o，此处只分析它，其他省略。
+$(obj)/vmlinux<--|--$(vmlinux-objs-y)-piggy.o<--|--piggy.S<--|--vmlinux.bin.gz<--|--vmlinux.bin<--vmlinux(根目录下的)
+                 |                              |            |                   |        # objcopy -R .comment -S ...
+                 |                              |            |                   |        $(call if_changed,objcopy)
+                 |                              |            |                   |
+                 |                              |            |                   |--vmlinux.reloc<--vmlinux(根目录下的)
+                 |                              |            |                   |# 此目标是可选项。由 arch/x86/tools/relocs
+                 |                              |            |                   |# 处理 vmlinux 得到
+                 |                              |            |                   |
+                 |                              |            |        # 把 vmlinux.bin 和 [vmlinux.reloc] 压缩在一起
+                 |                              |            |        $(call if_changed,gzip)
+                 |                              |            |
+                 |                              |            |--mkpiggy<--mkpiggy.c
+                 |                              |            |# hostprogs，省略分析
+                 |                              |            |
+                 |                              |        # mkpiggy 工具生成 piggy.S， 该.S 包含了 vmlinux.bin.gz    
+                 |                              |        $(call if_changed,mkpiggy)
+                 |                              |
+                 |        # piggy.o 的 rule match了 Makefile.build
+                 |        # 中的 $(obj)/%.o: $(src)/%.S ...
+                 |
+                 |--FORCE
+                 |
+        $(call if_changed,check_data_rel)
+        $(call if_changed,ld)
+
+[5] arch/x86/boot/compressed/vmlinux(下面以 vmlinux 指代) 的生成过程略复杂。
+vmlinux 依赖所在目录下的一堆 .o 文件，这些 .o 来自 .c 或 .S。其中 piggy.o 来自 piggy.S,
+piggy.S 是由工具 mkpiggy 处理 vmlinux.bin.<压缩> 生成， vmlinux.bin.<压缩> 由压缩 vmlinux.bin
+和 vmlinux.relocs 得到，vmlinux.bin 是 objcopy vmlinux 的产物，vmlinux.relocs 由工具
+arch/x86/tools/relocs 处理 vmlinux 得到。
+此处由少量参考信息：https://github.com/0xAX/linux-insides/blob/master/Misc/how_kernel_compiled.md
+
+现在，bzImage 已经生成，下面就可以 make install 了。install 也是定义在 arch/x86/Makefile 中
+# boot=arch/x86/boot
+install:
+        $(Q)$(MAKE) $(build)=$(boot) $@
+
+又进入到 arch/x86/boot/Makefile:
+
+install:
+        sh $(srctree)/$(src)/install.sh $(KERNELRELEASE) $(obj)/bzImage \
+                System.map "$(INSTALL_PATH)"
+
+所以 install 最终执行的命令是(KERNELRELEASE,INSTALL_PATH 在 top Makefile 中定义)：
+arch/x86/boot/install.sh $(KERNELRELEASE) arch/x86/boot/bzImage System.map "$(INSTALL_PATH)"
+如果系统中有 installkernel 的程序，则执行它来安装刚编译好的 kernel
+
+### Modules 的编译过程
+
+modules<--|--$(vmlinux-dirs)
+          |
+          |--$(if $(KBUILD_BUILTIN),vmlinux) # 就是vmlinux
+          |# 上面两个 prerequisites 实际已经完成。所以重点是下面
+          |# 的 modules.builtin
+          |
+          |--modules.builtin<--|--$(vmlinux-dirs:%=%/modules.builtin)
+          |                    |# prerequisites 变成了 %/modules.builtin
+          |                    |# match 下面的 rule
+          |                    |
+          |        $(Q)$(AWK) '!x[$$0]++' $^ > $(objtree)/modules.builtin
+          |
+        $(Q)$(AWK) '!x[$$0]++' $(vmlinux-dirs:%=$(objtree)/%/modules.order) > $(objtree)/modules.order
+        @$(kecho) '  Building modules, stage 2.';
+        $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost
+        $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.fwinst obj=firmware __fw_modbuild
+
+
+%/modules.builtin: include/config/auto.conf
+        $(Q)$(MAKE) $(modbuiltin)=$*
+
+扩展开来就是：
+
+%/modules.builtin: include/config/auto.conf
+        make -f $(srctree)/scripts/Makefile.modbuiltin obj=% # 这个 % 实际是 vmlinux-dirs 中的每个 dir
+
+modules.builtin 文件似乎只是收集了(各目录下)被 builtin 的模块信息，最后汇总为根目录下的 modules.builtin 文件。
+scripts/Makefile.modbuiltin 中 include 了 auto.conf 和 tristate.conf，这两个conf的关系很微妙，其中有重复的
+CONFIG_ 变量， 但 tristate.conf 将覆盖 auto.conf。所以在此 makefile 中会使用 obj-Y 变量.
+
+modules.order 文件在编译 vmlinux 时经 Makefile.build 文件中的 target modorder-target 创建。
+并且 Makefile.lib 中有：
+
+    modorder := $(patsubst %/,%/modules.order, $(filter %/, $(obj-y)) $(obj-m:.o=.ko))
+
+每一个目录下 modorder 变量值根据同级的 Makefile 中obj-y, obj-m 来确定，要么是 subdir 下的 modules.order,
+要么是 <module_name>.ko
+# 我们以 obj=drivers 为例详细分析其过程
+------------------------------------------------------------------------------------------------------------
+
+Q1： arch/x86 目录下编译流程分析
 Makefile
 $(vmlinux-dirs): prepare scripts
          $(Q)$(MAKE) $(build)=$@
@@ -35,7 +403,7 @@ $(subdir-ym):
 由此看出, 将对 subdir 进行 recursive 的 build, 直到最底层的文件夹. 每一层文件夹下的所有 .o 文件被链接成 built-in.o 文件.
 这里有一个小的key point就是, 在每一层文件夹下 build 时, obj-y 的值在 Makefile.lib 中被处理为当前文件夹下所有 .o 和子文件夹下的built-in.o
 
-Q2. init/Makefle 中的 mounts-y 是如何被编译到的?
+Q2： init/Makefle 中的 mounts-y 是如何被编译到的?
 the magic 在 Makefile.lib 中的这句:
 # if $(foo-objs) exists, foo.o is a composite object
 multi-used-y := $(sort $(foreach m,$(obj-y), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y))), $(m))))
@@ -48,125 +416,15 @@ $(multi-used-y): FORCE
 $(call multi_depend, $(multi-used-y), .o, -objs -y) # 重点之一, multi_depend 中使用了 eval 函数, 定义了一条 rule 用来描述 $(multi-used-y) 的依赖关系, 这个rule 由 multi_depend生成, 长这样 $(multi-used-y): 所有依赖的.o 文件
 所以, 和上面的 $(multi-used-y): FORCE 是同一个target, 同一个target的 rule会被合并, prerequisite 会被合并, 然后在 变量 link_multi_deps 的 $^ 中, 就是合并后的所有 prerequisites
 
-
 Q3: make *config 的产物只是 .config 吗？
-目前推测：Yes， 如需确认，需要分析 scripts/kconfig/ 下的source code
+是的
 
-Q4. make prepare 时候到底都做了什么事情？
-列一下, prepare 的 target 依赖关系。
-------------------------------------------------------------------
-$(vmlinux-dirs): prepare scripts
-        $(Q)$(MAKE) $(build)=$@
-
-prepare: prepare0 prepare-objtool
-
-prepare0: archprepare gcc-plugins
-         $(Q)$(MAKE) $(build)=.
-
-archprepare: archheaders archscripts prepare1 scripts_basic
-
-# archXXX is defined in arch/$(SRCARCH)/Makefile
-archheaders:
-         $(Q)$(MAKE) $(build)=arch/x86/entry/syscalls all
-
-# gcc-plugins is defined in scripts/Makefile.gcc-plugins
-gcc-plugins: scripts_basic gcc-plugins-check
-ifdef CONFIG_GCC_PLUGINS
-        $(Q)$(MAKE) $(build)=scripts/gcc-plugins
-endif
-        @:
-
-scripts_basic:
-        $(Q)$(MAKE) $(build)=scripts/basic
-        $(Q)rm -f .tmp_quiet_recordmcount
-
-prepare-objtool: $(objtool_target)
-------------------------------------------------------------------
-
-根据这些依赖关系，绘制下 flow chart(rule 的执行顺序是深度优先)：
-prepare<--|--prepare0<--|--archprepare<--|--archheaders[in arch/x86/Makefile]
-          |             |                |        $(Q)$(MAKE) $(build)=arch/x86/entry/syscalls all # 用来生成 arch/x86/include/generated/ 下的头文件
-          |             |                |
-          |             |                |--archscripts<--scripts_basic[repeat_1]
-          |             |                |        $(Q)$(MAKE) $(build)=arch/x86/tools relocs # 显而易见，生成 arch/x86/tools 下的 relocs 工具
-          |             |                |
-          |             |                |--prepare1<--|--prepare2<--|--prepare3<--|--include/config/kernel.release<--include/config/auto.conf[repeated_2]<--..
-          |             |                |             |             | # [Target auto.conf 的处理流程分析在下面]
-          |             |                |             |             |
-          |             |                |             |             |--prepare-compiler-check # stack protector 相关的check. 略过
-          |             |                |             |             |
-          |             |                |             |             |--outputmakefile
-          |             |                |             |             |[此target/rule只有在使用separate output directory生效]
-          |             |                |             |             |
-          |             |                |             |             |--asm-generic
-          |             |                |             |             |        [long_recipe_0]
-          |             |                |             |             |        [long_recipe_1]
-          |             |                |             |
-          |             |                |             |
-          |             |                |             |--$(version_h)<--$(srctree)/Makefile
-          |             |                |             |        # version_h = include/generated/uapi/linux/version.h
-          |             |                |             |        $(call filechk,version.h)
-          |             |                |             |        $(Q)rm -f $(old_version_h)
-          |             |                |             |
-          |             |                |             |--include/generated/utsrelease.h<--include/config/kernel.release
-          |             |                |             |        $(call filechk,utsrelease.h)
-          |             |                |             |
-          |             |                |             |--include/config/auto.conf[repeat_2]<--|--$(KCONFIG_CONFIG)
-          |             |                |             |  [match include/config/%.conf]        |[.config, produced by make *config]
-          |             |                |             |                                       |
-          |             |                |             |                                       |<--include/config/auto.conf.cmd
-          |             |                |             |                                       |[对于clean src tree, 此时此文件还不存在]
-          |             |                |             |
-          |             |                |             |        $(Q)$(MAKE) -f $(srctree)/Makefile silentoldconfig
-          |             |                |             |        [silentoldconfig matches %config, 会创建include/config 和 include/generated目录]
-          |             |                |
-          |             |                |
-          |             |                |        $(Q)mkdir -p $(MODVERDIR) $(if $(KBUILD_MODULES),; rm -f $(MODVERDIR)/*)
-          |             |                |        [MODVERDIR只有编译KBUILD_EXTMOD时才有值]
-          |             |                |
-          |             |                |
-          |             |                |
-          |             |                |
-          |             |                |
-          |             |                |--scripts_basic[repeat_1]
-          |             |                |        $(Q)$(MAKE) $(build)=scripts/basic # build fixdep & bin2c under scripts/basic
-          |             |                |        $(Q)rm -f .tmp_quiet_recordmcount
-          |             |
-          |             |# defined in arch/x86/Makefile
-          |             |ifeq ($(CONFIG_KEXEC_FILE),y)
-          |             |        $(Q)$(MAKE) $(build)=arch/x86/purgatory arch/x86/purgatory/kexec-purgatory.c
-          |             |endif
-          |             |
-          |             |
-          |             |--gcc-plugins<--|--scripts_basic[repeat_1]
-          |             |                |
-          |             |                |
-          |             |                |--gcc-plugins-check
-          |             |                |ifdef CONFIG_GCC_PLUGINS
-          |             |                |        $(Q)$(MAKE) $(build)=scripts/gcc-plugins
-          |             |                |endif
-          |
-          |
-          |        $(Q)$(MAKE) $(build)=.
-          |
-          |
-          |
-          |
-          |
-          |
-          |
-          |
-          |--prepare-objtool
-
-
-[long_recipe_0]: $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic src=asm obj=arch/$(SRCARCH)/include/generated/asm
-[long_recipe_1]: $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.asm-generic src=uapi/asm obj=arch/$(SRCARCH)/include/generated/uapi/asm
-
+Q4. bzImage 是什么，又是如何生成的？
 
 Q5. Empty recipes 和 Force target 的关系，区别？
 
 
-Q6. 目标 silentoldconf 的处理流程?
+Q6. 目标 silentoldconfig 的处理流程?
 因为 target include/config/auto.conf match 了下面的 rule
 
 include/config/%.conf: $(KCONFIG_CONFIG) include/config/auto.conf.cmd
@@ -215,7 +473,7 @@ $(obj)/%: $(src)/%_shipped
  * All other commands are only used to generate a config.
  */
 
-Q7. include/config/auto.conf  include/config/auto.conf.cmd 等文件是如何生成的？
+Q7. include/config/auto.conf ，include/config/tristate.conf， include/config/auto.conf.cmd 等文件是如何生成的？
 这两个以及其他若干文件是在 `make silentoldconfig` 的过程中生成的. 由Q6可知，目标 silentoldconfig 会创建
 include/config & include/generated 目录，最终执行的命令是 scripts/kconfig/conf --silentoldconfig Kconfig.
 由可执行程序 conf 的 main 函数(conf.c)可以看到， 只有在 silentoldconfig 时， 才会调用函数 conf_write_autoconf，
@@ -227,3 +485,8 @@ include/config/tristate.conf
 include/config/auto.conf
 
 每次更新 .config 后去重新 make 时，都会更新上面倒数3个文件。
+
+Q8. Makefile.build 中 modorder-target 的 recipe，
+scripts/Makefile.modbuiltin 中 modbuiltin-target 的 recipe 结果怎么得到的？
+
+Q9. 一个模块(.ko)是如何编译出来的？
