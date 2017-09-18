@@ -405,6 +405,7 @@ multi-used-y 是所有 obj-y 中 的 composite object; 同理 multi-used-m 是�
 multi-objs-y 是 obj-y 中所有的 composite object 所包含的 .o 集合; 同
 理,multi-objs-m 是 obj-m 中所有的 composite object 所包含的 .o 集合;
 multi-objs 是二者之和;
+
 ------------------------------------------------------------------------------------------------------------
 
 Q1： arch/x86 目录下编译流程分析
@@ -535,3 +536,4 @@ Q10. extra-y 的.o 被放到哪儿去了?
 
 
 Q11. obj-y, obj-m 中的 .o 的编译选项的变量的使用说明?
+
