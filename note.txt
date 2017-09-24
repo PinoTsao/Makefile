@@ -63,6 +63,8 @@ _all<--|--all<--|--vmlinux<--|--scripts/link-vmlinux.sh
                 |            |--$(vmlinux-deps)
                 |            |
                 |            |--FORCE
+                |            |
+                |        +$(call if_changed,link-vmlinux)
                 |
                 |--bzImage # 定义在 arch/x86/Makefile
                 |
@@ -366,6 +368,19 @@ modules.order 文件在编译 vmlinux 时经 Makefile.build 文件中的 target 
 每一个目录下 modorder 变量值根据同级的 Makefile 中obj-y, obj-m 来确定，要么是 subdir 下的 modules.order,
 要么是 <module_name>.ko
 
+modpost(Makefile.modpost) 的处理流程：(_modpost 是 default goal)
+_modpost<--|--__modpost$: (modules:.ko=.o)<--FORCE
+           |        $(call cmd,modpost) $(wildcard vmlinux) # 见下方[注释]
+           |
+           |# KBUILD_MODPOST_NOFINAL 一般情况不会定义，所以此句等于 $(modules)
+           |# modules=所有的.ko
+           |--$(if $(KBUILD_MODPOST_NOFINAL), $(modules:.ko:.o),$(modules))
+           |==$(modules): %.ko :%.o %.mod.o
+           |        +$(call if_changed,ld_ko_o) # 将模块的.o 和 .mod.o 文件链接为 .ko 文件
+
+[注释]
+scripts/mod/modpost 程序处理所有 module 的 .o 和 vmlinux 文件，为每一个 module 生成一个 .mod.c 文件，
+还生成$(objtree)/Module.symvers 文件。.mod.c 文件和其对应 module 的 .o 文件一起链接生成 .ko 文件。
 
 ### linux kernel 编译概述
 
