@@ -2,11 +2,12 @@
 
 ## target flowchart
 
-Tips：
-1. 流程分析基于假设 make 发生在源码目录, 没有 make O=
-2. 流程分析基于 x86 64，并且不是编译单个存在于单独文件夹下的 module
-3. 流程分析基于普通用户编译内核时最小白的方式：
-   make menuconfig//modules_install/install
+flowchart 分析基于以下前提：
+1. 编译发生在源码目录, 未定义KBUILD_SRC, 即没有 make O=
+2. 基于 x86_64，并且不是编译单个存在于单独文件夹下的 module,
+   即未定义KBUILD_EXTMOD
+3. 基于普通用户编译内核时最小白的方式：
+   make menuconfig//modules_install/install/clean
 3. flowchart 中，以 # 开始的部分为注释； [] 为 reference
 4. Makefile 执行流程的规则是深度优先
 5. 命令行执行 make 时，除了 target，没有其他选项
@@ -381,6 +382,91 @@ _modpost<--|--__modpost$: (modules:.ko=.o)<--FORCE
 [注释]
 scripts/mod/modpost 程序处理所有 module 的 .o 和 vmlinux 文件，为每一个 module 生成一个 .mod.c 文件，
 还生成$(objtree)/Module.symvers 文件。.mod.c 文件和其对应 module 的 .o 文件一起链接生成 .ko 文件。
+
+
+### Make clean;mrproper;disclean
+
+目标 clean 在 top Makefile 中的定义在空间上跨越很大,不易厘清
+
+    ifeq ($(KBUILD_EXTMOD),)
+        ifdef CONFIG_MODULES
+        else # !CONFIG_MODULES
+        endif # CONFIG_MODULES
+
+    clean: bluhbluh
+    mrproper: bluhbluh
+
+    else # has KBUILD_EXTMOD
+    endif # KBUILD_EXTMOD
+
+    clean: bluhbluh
+
+target "clean" use target-specific variables:
+        rm-dirs  := $(CLEAN_DIRS)
+        rm-files := $(CLEAN_FILES)
+
+target "mrproper" use target-specific variables:
+        rm-dirs  := $(wildcard $(MRPROPER_DIRS))
+        rm-files := $(wildcard $(MRPROPER_FILES))
+
+cmd_rmdirs = rm -rf $(rm-dirs)
+cmd_rmfiles = rm -f $(rm-files)
+
+
+$(clean) is defined in Kbuild.include as
+        clean := -f $(srctree)/scripts/Makefile.clean obj
+
+clean<--|--archclean # 定义在 arch/x86/Makefile 中
+        |        $(Q)rm -rf $(objtree)/arch/i386
+        |        $(Q)rm -rf $(objtree)/arch/x86_64
+        |        $(Q)$(MAKE) $(clean)=$(boot)
+        |        $(Q)$(MAKE) $(clean)=arch/x86/tools
+        |        $(Q)$(MAKE) $(clean)=arch/x86/purgatory
+        |
+        |# clean-dirs := $(addprefix _clean_, . $(vmlinux-alldirs) Documentation samples)
+        |--vmlinuxclean
+        |        $(Q)$(CONFIG_SHELL) $(srctree)/scripts/link-vmlinux.sh clean
+        |        $(Q)$(if $(ARCH_POSTLINK), $(MAKE) -f $(ARCH_POSTLINK) clean)
+        |
+        |--$(clean-dirs)
+        |        $(Q)$(MAKE) $(clean)=$(patsubst _clean_%,%,$@)
+        |
+       $(call cmd,rmdirs)
+       $(call cmd,rmfiles)
+       @find $(if $(KBUILD_EXTMOD), $(KBUILD_EXTMOD), .) $(RCS_FIND_IGNORE) \
+               \( -name '*.[oas]' -o -name '*.ko' -o -name '.*.cmd' \
+               -o -name '*.ko.*' \
+               -o -name '*.dwo'  \
+               -o -name '*.su'  \
+               -o -name '.*.d' -o -name '.*.tmp' -o -name '*.mod.c' \
+               -o -name '*.symtypes' -o -name 'modules.order' \
+               -o -name modules.builtin -o -name '.tmp_*.o.*' \
+               -o -name '*.c.[012]*.*' \
+               -o -name '*.gcno' \) -type f -print | xargs rm -f
+
+关于target name: mrproper 的来历:
+https://0x657573.wordpress.com/2011/01/03/what-does-mrproper-in-make-mrproper-stand-for/
+http://www.neatorama.com/2007/09/15/the-many-names-of-mr-clean/
+https://lists.gt.net/linux/kernel/178306
+
+mrproper<--|--clean
+           |
+           |--archmrproper # NULL for x86
+           |
+           |# mrproper-dirs := $(addprefix _mrproper_,Documentation/DocBook scripts)
+           |--$(mrproper-dirs)
+           |        $(Q)$(MAKE) $(clean)=$(patsubst _mrproper_%,%,$@)
+           |
+        $(call cmd,rmdirs)
+        $(call cmd,rmfiles)
+
+distclean<--mrproper
+                @find $(srctree) $(RCS_FIND_IGNORE) \
+                \( -name '*.orig' -o -name '*.rej' -o -name '*~' \
+                -o -name '*.bak' -o -name '#*#' -o -name '.*.orig' \
+                -o -name '.*.rej' -o -name '*%'  -o -name 'core' \) \
+                -type f -print | xargs rm -f
+
 
 ### linux kernel 编译概述
 
