@@ -1,5 +1,7 @@
 # 内核编译系统概述
 
+linux kernel 的编译使用了一种叫作 kbuild 的系统来管理.
+Makefile 是一种语言
 kernel 编译是 per directory 的. 为什么这么说? 由Makefile 可知, 所有的真正编译动作的入口长这个样子:
 
         $(Q)$(MAKE) $(build)=$@
