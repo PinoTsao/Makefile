@@ -11,6 +11,8 @@ Makefile 是一种语言, 有关于 GNU make 的知识都来自于它的文档�
 
 对于完全不了解 makefile 的读者，可以先读《跟我一起写makefile》来获得 the elementary knowlege; 再通过阅读 GNU make 的英文文档，来获得最准确权威的 makefile 知识.
 
+除了上述文档, Oreilly出版的《managing projects with gnu make》(中文版《GNU Make 项目管理》)也是学习 GNU make 的权威资料。
+
 **若已经了解 makefile 基本概念，在能力允许的情况下，尽可能多的阅读 GNU make 官方文档是学习它的最佳方式。**
 
 可以通过阅读 `info make` 的部分内容来掌握 the elementary knowlege of makefile.

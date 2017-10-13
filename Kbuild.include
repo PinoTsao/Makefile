@@ -83,8 +83,8 @@ cc-cross-prefix =  \
 # output directory for tests below
 TMPOUT := $(if $(KBUILD_EXTMOD),$(firstword $(KBUILD_EXTMOD))/)
 
-# [pino] In order to understand the 4 dollars "$$$$", one need to know what is
-# Secondary Expansion(refer 3.8 of `info make`), then refer this link:
+# [pino] In order to understand the 4 dollars "$$$$", one need to refer
+# "5.1.2 Using Variables in Recipes" of `info make`, then refer this link:
 # https://stackoverflow.com/questions/1320226/four-dollar-signs-in-makefile
 # to understand the details. Tips: 1. "$$" means the PID of script itself
 # in bash; 2. kernel makefile doesn't enable Secondary Expansion.
