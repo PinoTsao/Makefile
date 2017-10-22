@@ -638,3 +638,15 @@ Q10. extra-y 的.o 被放到哪儿去了?
 
 Q11. obj-y, obj-m 中的 .o 的编译选项的变量的使用说明?
 
+Q12. 如何判断一个 .c 文件所依赖的所有 .h 文件？
+
+Q13. Makefile 的文档中， FORCE target 和 empty recipe 的区别？
+
+根据文档， FORCE target 的形式是
+	FORCE:
+
+target of Empty recipe 的形式是
+	target: ;
+
+二者看起来很像，怀疑 Empty recipe 的 target 其实也是 FORCE target。
+确认：“3.6 Overriding Part of Another Makefile” 中的例子可以确认这一点。

@@ -15,8 +15,16 @@ Makefile 是一种语言, 有关于 GNU make 的知识都来自于它的文档�
 
 **若已经了解 makefile 基本概念，在能力允许的情况下，尽可能多的阅读 GNU make 官方文档是学习它的最佳方式。**
 
-可以通过阅读 `info make` 的部分内容来掌握 the elementary knowlege of makefile.
-首先,前三章应该通读，即：
+可以通过阅读 `info make` 的部分内容来掌握 the elementary knowlege of makefile. GNU make 的文档对于如何阅读它有介绍：
+
+>If you are new to 'make', or are looking for a general introduction,
+read the first few sections of each chapter, skipping the later
+sections.  In each chapter, the first few sections contain introductory
+or general information and the later sections contain specialized or
+technical information.  The exception is the second chapter, *note An
+Introduction to Makefiles: Introduction, all of which is introductory.
+
+我的 tips：前三章应该通读，即：
 
 >* Overview::
 >* Introduction::
