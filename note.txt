@@ -564,6 +564,31 @@ Q4. bzImage 是什么，又是如何生成的？
 
 Q5. Empty recipes 和 Force target 的关系，区别？
 
+在GNU make 文档中，FORCE target 的定义是：
+
+	If a rule has no prerequisites or recipe, and the target of the rule is a nonexistent file,
+	then `make' imagines this target to have been updated whenever its rule is run.
+
+形式是
+	FORCE:
+
+Empty recipe 的形式是
+	target: ;
+
+二者看起来很像，怀疑 Empty recipe 的 target 其实也是 FORCE target。“3.6 Overriding Part of Another Makefile” 中的例子可以确认这一点。
+另外，可以通过下面的小例子来证明一下：
+
+	hello: hello.c FORCE
+        	gcc hello.c -o hello
+
+	FORCE: hello.c
+		@echo FORCE
+
+先执行一次 make, 生成 target "hello"，分别做如下修改，再 make, 通过查看 hello 的修改时间便可确认。
+1. target FORCE 的 prerequisite 为空
+2. target FORCE 的 recipe 为空
+3. 修改成 Empty recipe 的样子
+4. 声明 FORCE 为 PHONY target
 
 Q6. 目标 silentoldconfig 的处理流程?
 因为 target include/config/auto.conf match 了下面的 rule
@@ -639,14 +664,15 @@ Q10. extra-y 的.o 被放到哪儿去了?
 Q11. obj-y, obj-m 中的 .o 的编译选项的变量的使用说明?
 
 Q12. 如何判断一个 .c 文件所依赖的所有 .h 文件？
+理论说明： 4.14 Generating Prerequisites Automatically
 
-Q13. Makefile 的文档中， FORCE target 和 empty recipe 的区别？
+Q13. recipe 前面的 special prefix character "@", "-", "+" 是什么意思？
+Refer: https://stackoverflow.com/questions/3477292/what-do-and-do-as-prefixes-to-recipe-lines-in-make
 
-根据文档， FORCE target 的形式是
-	FORCE:
+    @ suppresses the normal 'echo' of the command that is executed.
 
-target of Empty recipe 的形式是
-	target: ;
+    - means ignore the exit status of the command that is executed (normally, a non-zero exit status would stop that part of the build).
 
-二者看起来很像，怀疑 Empty recipe 的 target 其实也是 FORCE target。
-确认：“3.6 Overriding Part of Another Makefile” 中的例子可以确认这一点。
+    + means 'execute this command under make -n' (when commands are not normally executed).
+
+

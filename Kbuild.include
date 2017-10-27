@@ -2,6 +2,11 @@
 # kbuild: Generic definitions
 
 # Convenient variables
+# [pino] wonder the reason of the variable "empty", "space", etc?
+# Refer the latter part of "6.2 The Two Flavors of Variables",
+# from the line including words "controlled leading whitespace",
+# latter part of "8.1 Function Call Syntax".
+# [oniq]
 comma   := ,
 quote   := "
 squote  := '
@@ -27,6 +32,9 @@ basetarget = $(basename $(notdir $@))
 baseprereq = $(basename $(notdir $<))
 
 ###
+# [pino] knowledge of this area should refer syntax of bash shell.
+# Please refer "Chapter 5. Quoting" of <Advanced Bash-Scripting Guide>
+# for details of double quote & single quote. [oniq]
 # Escape single quote for use in echo statements
 escsq = $(subst $(squote),'\$(squote)',$1)
 
