@@ -44,3 +44,22 @@
 
 在 Top makefile 中：
 
+![config](/home/pino/Pictures/menuconfig.png  "target config")
+
+Target "scripts_basic" 被很多 target 依赖，它的作用是生成整个内核编译过程中所需要的 basic program: fixdep & bin2c。其实 target “*config” 最终也是执行一个 host program，用来生成配置文件 .config 等，后面将以它为例介绍编译 host program 的详细过程。
+
+所以，make menuconfig 的过程就剩下执行 config 的 recipe，也就是进入 scripts/kconfig/Makefile 中寻找真正的 target： menuconfig，在此 makefile 中有：
+
+	menuconfig: $(obj)/mconf
+		$< $(silent) $(Kconfig)
+
+	hostprogs-y := conf nconf mconf kxgettext qconf gconf
+	mconf-objs     := mconf.o zconf.tab.o $(lxdialog)
+
+	lxdialog := lxdialog/checklist.o lxdialog/util.o lxdialog/inputbox.o
+	lxdialog += lxdialog/textbox.o lxdialog/yesno.o lxdialog/menubox.o
+
+看起来 menuconfig 的 target-prerequisite 关系流程很简单，仅仅是使用一个叫做 mconf 的 host program。那么剩下的问题就分为了 2 个：
+
+1. host program "mconf" 是如何生成的？
+2. mconf 如何执行生成 .config 等配置文件的？
