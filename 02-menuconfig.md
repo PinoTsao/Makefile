@@ -58,7 +58,7 @@
 
 在 Top makefile 中：
 
-![config](/home/pino/Pictures/menuconfig.png  "target config")
+![config](res/menuconfig.png  "target config")
 
 Target "scripts_basic" 被很多 target 依赖，它的作用是生成整个内核编译过程中所需要的 basic program: fixdep & bin2c。其实 target “*config” 最终也是执行一个 host program，用来生成配置文件 .config 等，后面将以它为例介绍编译 host program 的详细过程。
 
