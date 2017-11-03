@@ -13,6 +13,8 @@ NAME = Fearless Coyote
 # o Do not use make's built-in rules and variables
 #   (this increases performance and avoids hard-to-debug behaviour);
 # o Look for make include files relative to root of kernel src
+# [pino] For builtin-variable, refer "10.3 Variables Used by Implicit Rules"
+# [oniq]
 MAKEFLAGS += -rR --include-dir=$(CURDIR)
 
 # Avoid funny character set dependencies

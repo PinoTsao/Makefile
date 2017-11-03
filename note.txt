@@ -558,7 +558,7 @@ $(call multi_depend, $(multi-used-y), .o, -objs -y) # 重点之一, multi_depend
 所以, 和上面的 $(multi-used-y): FORCE 是同一个target, 同一个target的 rule会被合并, prerequisite 会被合并, 然后在 变量 link_multi_deps 的 $^ 中, 就是合并后的所有 prerequisites
 
 Q3: make *config 的产物只是 .config 吗？
-是的
+是
 
 Q4. bzImage 是什么，又是如何生成的？
 
@@ -675,4 +675,23 @@ Refer: https://stackoverflow.com/questions/3477292/what-do-and-do-as-prefixes-to
 
     + means 'execute this command under make -n' (when commands are not normally executed).
 
+Q14. Host program: fixdep
+scripts/basic/fixdep.c 文件头的描述对它的作用做了详细的描述，必看！
+可以通过观察 init/.main.o.d 和 init/.main.o.cmd，人眼比对，可以验证程序的行为。
 
+scripts/basic/fixdep.c 中 hash 表的实现有个小tips，就是 Hash value 相同的 item 会构成一个 hash bucket
+(hash bucket 的存在是为了解决 Hash value 冲突，可以搜索它来了解基本概念)
+
+                [Input]
+                   |
+                   +
+            [Hash Function]
+                   |
+     -----------------------------
+    /         /         \         \
+[Hvalue1] [Hvalue2] [Hvalue3] [Hvalue4]
+   1          1
+   2                    2 
+   3
+
+每一个 Hvalue* 下面是一个链表，叫做 hash bucket，保存着相同 hash value 的 item。单项链表，后插入的在链表头部。
