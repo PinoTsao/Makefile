@@ -1,5 +1,19 @@
 # Flowchart of make menuconfig
 
+阅读本文及后续文章的 flowchart 的前提和 tips：
+
+- 假设编译发生在源码目录, 未定义KBUILD_SRC, 即没有 make O=
+- 假设基于 x86_64
+- 不是编译单个存在于单独文件夹下的 module, 即未定义KBUILD_EXTMOD
+- flowchart 图中，以 # 开始的部分为注释
+- 假设命令行执行 make 时，除了 target，没有其他选项
+- **Makefile 执行流程的规则是深度优先**
+
+本系列文章遵循小白的思路进行分析，i.e.:
+
+>make menuconfig/[all]/modules_install/install/clean(or mrproper,disclean)
+
+
 内核编译的第一步永远是配置: make *config。有各种样子的 config 的 target:
 
 	config          - Update current config utilising a line-oriented program
