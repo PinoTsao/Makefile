@@ -54,23 +54,31 @@ menuconfig<--|--$(obj)/mconf
 所以，vmlinux-deps 的值包含了完整路径的文件名。
 
 part1:
-_all<--|--all<--|--vmlinux<--|--scripts/link-vmlinux.sh
-                |            |
-                |            |--vmlinux_prereq<--|--$(vmlinux-deps)<*>--[part2]
-                |            |                   |
-                |            |                   |--FORCE
-                |            |        # 根据.config 中的配置，有若干种 recipe。不列出
-                |            |
-                |            |--$(vmlinux-deps)
-                |            |
-                |            |--FORCE
-                |            |
+_all<--|--all<--|--vmlinux--|--scripts/link-vmlinux.sh
+                |           |
+                |           |--vmlinux_prereq--|--$(vmlinux-deps)<*>--[part2]
+                |           |                  |
+                |           |                  |--FORCE
+                |           |        # 根据.config 中的配置，
+                |           |        # 有若干 recipe，省略
+                |           |
+                |           |--$(vmlinux-deps)
+                |           |
+                |           |--FORCE
+                |           |
                 |        +$(call if_changed,link-vmlinux)
                 |
-                |--bzImage # 定义在 arch/x86/Makefile
+                |# 定义在 arch/x86/Makefile
+                |--bzImage
                 |
-                |--modules # .config 中配置 CONFIG_MODULES 时生效
-                |
+                |# .config 中配置 CONFIG_MODULES 时生效
+                |--modules--|--$(vmlinux-dirs)
+                            |
+                            |--$(if $(KBUILD_BUILTIn),vmlinux)
+                            |
+                            |--modules.builtin
+                            |
+                       # modules recipe，省略
 
 
 下面自然是分析所有 built-in.o 的生成，需要了解的相关代码：
@@ -83,33 +91,33 @@ _all<--|--all<--|--vmlinux<--|--scripts/link-vmlinux.sh
 	$(sort $(vmlinux-deps)): $(vmlinux-dirs) ;
 
 part2:
-$(vmlinux-deps)<--|--$(vmlinux-dirs)<--|--prepare<--|--prepare0<--|--archprepare<--[part3]
-                  |                    |            |             |
-                  |                    |            |             |--gcc-plugins
-                  |                    |            |             |
-                  |                    |            |
-                  |                    |            |       $(Q)$(MAKE) $(build)=.
-                  |                    |            |       # Refer 顶层目录下的 Kbuild 文件来了解此 recipe 做的事情
-                  |                    |            |
-                  |                    |            |--prepare-objtool<--$(objtool_target) # tools/objtool
-                  |                    |            |        NO RECIPE
-                  |                    |            |
-                  |                    |
-                  |                    |
-                  |                    |--scripts<--|--scripts_basic
-                  |                    |            |
-                  |                    |            |--include/config/auto.conf
-                  |                    |            |
-                  |                    |            |--include/config/tristate.conf
-                  |                    |            |
-                  |                    |            |--asm-generic
-                  |                    |            |
-                  |                    |            |--gcc-plugins
-                  |                    |            |
-                  |                    |        $(Q)$(MAKE) $(build)=$(@)
-                  |                    |        # 这里的 $(@) 不常见，其实就是 $@
-                  |                    |        # 编译 scripts/ 目录下的各种工具
-                  |                    |
+$(vmlinux-deps)<--|--$(vmlinux-dirs)--|--prepare--|--prepare0--|--archprepare<--[part3]
+                  |                   |           |            |
+                  |                   |           |            |--gcc-plugins
+                  |                   |           |            |
+                  |                   |           |
+                  |                   |           |       $(Q)$(MAKE) $(build)=.
+                  |                   |           |       # Refer 顶层目录下的 Kbuild 文件来了解此 recipe 做的事情
+                  |                   |           |
+                  |                   |           |--prepare-objtool<--$(objtool_target) # tools/objtool
+                  |                   |           |        NO RECIPE
+                  |                   |           |
+                  |                   |
+                  |                   |
+                  |                   |--scripts<--|--scripts_basic
+                  |                   |            |
+                  |                   |            |--include/config/auto.conf
+                  |                   |            |
+                  |                   |            |--include/config/tristate.conf
+                  |                   |            |
+                  |                   |            |--asm-generic
+                  |                   |            |
+                  |                   |            |--gcc-plugins
+                  |                   |            |
+                  |                   |        $(Q)$(MAKE) $(build)=$(@)
+                  |                   |        # 这里的 $(@) 不常见，其实就是 $@
+                  |                   |        # 编译 scripts/ 目录下的各种工具
+                  |                   |
                   |        $(Q)$(MAKE) $(build)=$@
                   |        # descend into 每一个 vmlinux-dirs，编译相应的 built-in.o
                   |        # 后续有文章举例详细分析。
@@ -177,7 +185,8 @@ archprepare<--|--archheaders # 和下面的 archscripts 都定义在 arch/x86/Ma
               |             |        $(Q)$(MAKE) -f $(srctree)/Makefile silentoldconfig
               |             |        # silentoldconfig matches %config, refer Q6 for details
               |             |
-              |        $(Q)mkdir -p $(MODVERDIR) $(if $(KBUILD_MODULES),; rm -f $(MODVERDIR)/*)
+              |        $(cmd_crmodverdir)
+              |        # $(Q)mkdir -p $(MODVERDIR) $(if $(KBUILD_MODULES),; rm -f $(MODVERDIR)/*)
               |        # MODVERDIR 只有编译 KBUILD_EXTMOD 时才有值, 
               |        # 在我们的 assumptions 下（tip1,2），此 recipe 不做任何事情
               |
