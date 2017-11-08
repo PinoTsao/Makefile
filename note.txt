@@ -218,7 +218,7 @@ arch/x86/include/generated/asm/xen-hypercalls.h (if defined CONFIG_XEN)
 include/asm-generic contains a lot of files that are used verbatim by several architectures.
     本 target 的做的事情是在 generated 目录下创建一些 wrapper 文件, wrap include/asm-generic 下的一些文件，具体文件列表
 由 arch/x86/include/asm/Kbuild & arch/x86/include/uapi/asm/Kbuild 说明。
-    经过调查发现，很少有 arch 会在自己的include目录下生成 generated 下面的头文件
+
 
 [3] 首先， version_h = include/generated/uapi/linux/version.h
 filechk 是一个 Multi-Line Variable，定义在 Kbuild.include 中。filechk 会先 mkdir target 中的目录，本例中也就是：
