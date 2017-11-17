@@ -292,10 +292,10 @@ $(obj)/bzImage<--|--$(obj)/setup.bin<--|--$(obj)/setup.elf<--|--$(src)/setup.ld
 在 arch/x86/boot/compressed/Makefile (默认 gzip 压缩)中：
 # $(vmlinux-objs-y) 中，处理最复杂的是 piggy.o，此处只分析它，其他省略。
 $(obj)/vmlinux<--|--$(vmlinux-objs-y)-piggy.o<--|--piggy.S<--|--vmlinux.bin.gz<--|--vmlinux.bin<--vmlinux(根目录下的)
-                 |                              |            |                   |        # objcopy -R .comment -S ...
-                 |                              |            |                   |        $(call if_changed,objcopy)
-                 |                              |            |                   |
-                 |                              |            |                   |--vmlinux.reloc<--vmlinux(根目录下的)
+                 |# 因为有 piggy.S 的 rule 存在， |            |                   |        # objcopy -R .comment -S ...
+                 |# 所以 piggy.o match 了        |            |                   |        $(call if_changed,objcopy)
+                 |# Makefile.build 中的 rule     |            |                   |
+                 |# $(obj)/%.o: $(src)/%.S ...  |            |                   |--vmlinux.reloc<--vmlinux(根目录下的)
                  |                              |            |                   |# 此目标是可选项。由 arch/x86/tools/relocs
                  |                              |            |                   |# 处理 vmlinux 得到
                  |                              |            |                   |
@@ -308,8 +308,8 @@ $(obj)/vmlinux<--|--$(vmlinux-objs-y)-piggy.o<--|--piggy.S<--|--vmlinux.bin.gz<-
                  |                              |        # mkpiggy 工具生成 piggy.S， 该.S 包含了 vmlinux.bin.gz    
                  |                              |        $(call if_changed,mkpiggy)
                  |                              |
-                 |        # piggy.o 的 rule match了 Makefile.build
-                 |        # 中的 $(obj)/%.o: $(src)/%.S ...
+                 |        
+                 |        
                  |
                  |--FORCE
                  |

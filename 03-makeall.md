@@ -488,10 +488,7 @@ obj-m 中的每一个 single object 和 composite object 都是一个 module。
 	$(modorder-target): $(subdir-ym) FORCE
 		$(Q)(cat /dev/null; $(modorder-cmds)) > $@
 
-	# Rule to create modules.order file
-	#
-	# Create commands to either record .ko file or cat modules.order from
-	# a subdirectory
+	# Create commands to either record .ko file or cat modules.order from a subdirectory
 	modorder-cmds =                                         \
 	        $(foreach m, $(modorder),                       \
 	                $(if $(filter %/modules.order, $m),     \
@@ -503,10 +500,251 @@ obj-m 中的每一个 single object 和 composite object 都是一个 module。
 	# and -m subdirs.  Just put -y's first.
 	modorder := $(patsubst %/,%/modules.order, $(filter %/, $(obj-y)) $(obj-m:.o=.ko))
 	# 这里有一个疑问：为什么子目录的处理不包含 obj-m？难道 obj-y 和 obj-m 的子目录一定相同？
+	# 答：因为 $(filter %/, $(obj-m)) 是 $(obj-m:.o=.ko) 的子集
  
 从目录树的最底层开始，生成该目录下的 modules.order 文件。文件的内容包含下一层目录中同名文件的内容，和本层目录中的 $(obj-m:.o=.ko)。最底层的目录肯定是没有子目录的，所以只是 echo kernel/$m 到 modules.order 文件。
 
 ## bzImage
 
+Target "bzImage" 定义在 arch(x86) Makefile 中:
 
+	# In arch/x86/Makefile
+	boot := arch/x86/boot
+
+	# KBUILD_IMAGE specify target image being built
+	KBUILD_IMAGE := $(boot)/bzImage
+
+	bzImage: vmlinux
+	ifeq ($(CONFIG_X86_DECODER_SELFTEST),y)
+        	$(Q)$(MAKE) $(build)=arch/x86/tools posttest
+	endif
+        	$(Q)$(MAKE) $(build)=$(boot) $(KBUILD_IMAGE)
+        	$(Q)mkdir -p $(objtree)/arch/$(UTS_MACHINE)/boot
+        	$(Q)ln -fsn ../../x86/boot/bzImage $(objtree)/arch/$(UTS_MACHINE)/boot/$@
+
+如果一路看本文至此，应该可以看出哪儿一句是最重要的步骤，下面是它的 flowchart:
+
+![bzImage](res/bzImage.png  "bzImage")
+
+![compress](res/compress.png  "compress")
+
+bzImage 依赖于：setup.bin/setup.elf， vmlinux.bin，还有一个隐藏的 zoffset.h。前两个在下面两个小节里介绍，此处假设他们已经生成，所以剩下的工作就是执行 bzImage 的 recipe:
+
+	cmd_image = $(obj)/tools/build $(obj)/setup.bin $(obj)/vmlinux.bin \
+	                               $(obj)/zoffset.h $@ $($(quiet)redirect_image)
+
+但发现，zoffset.h 好像不存在？ Let's 在 arch/x86/boot/Makefile 中找找看：
+
+	setup-y         += early_serial_console.o edd.o *header.o* main.o memory.o
+
+	$(obj)/header.o: $(obj)/zoffset.h
+	
+	$(obj)/zoffset.h: $(obj)/compressed/vmlinux FORCE
+	        $(call if_changed,zoffset)
+
+	sed-zoffset := -e 's/^\([0-9a-fA-F]*\) [ABCDGRSTVW] \(startup_32\|startup_64\|efi32_stub_entry\|efi64_stub_entry\|efi_pe_entry\|input_data\|_end\|_ehead\|_text\|z_.*\)$$/\#define ZO_\2 0x\1/p'
+
+	cmd_zoffset = $(NM) $< | sed -n $(sed-zoffset) > $@
+ 
+索戴斯乃，原来在 setup.elf 的处理过程中就需要用到 zoffset.h 了，所以在处理 bzImage 的时候，zoffset.h 已经存在了。但是它竟然依赖 compressed 目录下的 vmlinux，所以看起来其实 compressed/vmlinux 比 setup.bin 更早生成，不信我们来看看 make 的输出
+
+>CC      arch/x86/boot/a20.o
+  AS      arch/x86/boot/bioscall.o
+  CC      arch/x86/boot/cmdline.o
+  AS      arch/x86/boot/copy.o
+  HOSTCC  arch/x86/boot/mkcpustr
+  CPUSTR  arch/x86/boot/cpustr.h
+  CC      arch/x86/boot/cpu.o
+  CC      arch/x86/boot/cpuflags.o
+  CC      arch/x86/boot/cpucheck.o
+  CC      arch/x86/boot/early_serial_console.o
+  CC      arch/x86/boot/edd.o
+  LDS     arch/x86/boot/compressed/vmlinux.lds
+  AS      arch/x86/boot/compressed/head_64.o
+  VOFFSET arch/x86/boot/compressed/../voffset.h
+  CC      arch/x86/boot/compressed/misc.o
+  CC      arch/x86/boot/compressed/string.o
+  CC      arch/x86/boot/compressed/cmdline.o
+  CC      arch/x86/boot/compressed/error.o
+  OBJCOPY arch/x86/boot/compressed/vmlinux.bin
+  RELOCS  arch/x86/boot/compressed/vmlinux.relocs
+  GZIP    arch/x86/boot/compressed/vmlinux.bin.gz
+  HOSTCC  arch/x86/boot/compressed/mkpiggy
+  MKPIGGY arch/x86/boot/compressed/piggy.S
+  AS      arch/x86/boot/compressed/piggy.o
+  CC      arch/x86/boot/compressed/cpuflags.o
+  CC      arch/x86/boot/compressed/early_serial_console.o
+  CC      arch/x86/boot/compressed/kaslr.o
+  CC      arch/x86/boot/compressed/pagetable.o
+  CC      arch/x86/boot/compressed/eboot.o
+  AS      arch/x86/boot/compressed/efi_stub_64.o
+  AS      arch/x86/boot/compressed/efi_thunk_64.o
+  DATAREL arch/x86/boot/compressed/vmlinux
+  LD      arch/x86/boot/compressed/vmlinux
+  ZOFFSET arch/x86/boot/zoffset.h
+  AS      arch/x86/boot/header.o
+  CC      arch/x86/boot/main.o
+  CC      arch/x86/boot/memory.o
+  CC      arch/x86/boot/pm.o
+  AS      arch/x86/boot/pmjump.o
+  CC      arch/x86/boot/printf.o
+  CC      arch/x86/boot/regs.o
+  CC      arch/x86/boot/string.o
+  CC      arch/x86/boot/tty.o
+  CC      arch/x86/boot/video.o
+  CC      arch/x86/boot/video-mode.o
+  CC      arch/x86/boot/version.o
+  CC      arch/x86/boot/video-vga.o
+  CC      arch/x86/boot/video-vesa.o
+  CC      arch/x86/boot/video-bios.o
+  LD      arch/x86/boot/setup.elf
+  OBJCOPY arch/x86/boot/setup.bin
+  OBJCOPY arch/x86/boot/vmlinux.bin
+  HOSTCC  arch/x86/boot/tools/build
+  BUILD   arch/x86/boot/bzImage
+
+可以看出，compressed/vmlinux 的确比 setup.bin 先生成，而且处理的顺序严格的遵循 make 依赖关系链中的深度优先原则。
+如果是使用 `make -jN`，上面的输出会有小幅度的乱序，但是 compressed/vmlinux 仍然比 setup.bin 先处理。这是我的环境中的例子：
+
+>CC      arch/x86/boot/a20.o
+  AS      arch/x86/boot/bioscall.o
+  CC      arch/x86/boot/cmdline.o
+  AS      arch/x86/boot/copy.o
+  HOSTCC  arch/x86/boot/mkcpustr
+  CC      arch/x86/boot/cpuflags.o
+  CC      arch/x86/boot/cpucheck.o
+  CC      arch/x86/boot/early_serial_console.o
+  CC      arch/x86/boot/edd.o
+  CC      arch/x86/boot/main.o
+  CC      arch/x86/boot/memory.o
+  CC      arch/x86/boot/pm.o
+  AS      arch/x86/boot/pmjump.o
+  CC      arch/x86/boot/printf.o
+  CC      arch/x86/boot/regs.o
+  CC      arch/x86/boot/string.o
+  CC      arch/x86/boot/tty.o
+  CC      arch/x86/boot/video.o
+  CC      arch/x86/boot/video-mode.o
+  CC      arch/x86/boot/version.o
+  CC      arch/x86/boot/video-vga.o
+  CC      arch/x86/boot/video-vesa.o
+  CC      arch/x86/boot/video-bios.o
+  HOSTCC  arch/x86/boot/tools/build
+  CPUSTR  arch/x86/boot/cpustr.h
+  CC      arch/x86/boot/cpu.o
+  LDS     arch/x86/boot/compressed/vmlinux.lds
+  AS      arch/x86/boot/compressed/head_64.o
+  VOFFSET arch/x86/boot/compressed/../voffset.h
+  CC      arch/x86/boot/compressed/string.o
+  CC      arch/x86/boot/compressed/cmdline.o
+  CC      arch/x86/boot/compressed/error.o
+  OBJCOPY arch/x86/boot/compressed/vmlinux.bin
+  RELOCS  arch/x86/boot/compressed/vmlinux.relocs
+  HOSTCC  arch/x86/boot/compressed/mkpiggy
+  CC      arch/x86/boot/compressed/cpuflags.o
+  CC      arch/x86/boot/compressed/early_serial_console.o
+  CC      arch/x86/boot/compressed/kaslr.o
+  CC      arch/x86/boot/compressed/pagetable.o
+  CC      arch/x86/boot/compressed/eboot.o
+  AS      arch/x86/boot/compressed/efi_stub_64.o
+  AS      arch/x86/boot/compressed/efi_thunk_64.o
+  CC      arch/x86/boot/compressed/misc.o
+  GZIP    arch/x86/boot/compressed/vmlinux.bin.gz
+  MKPIGGY arch/x86/boot/compressed/piggy.S
+  AS      arch/x86/boot/compressed/piggy.o
+  DATAREL arch/x86/boot/compressed/vmlinux
+  LD      arch/x86/boot/compressed/vmlinux
+  ZOFFSET arch/x86/boot/zoffset.h
+  OBJCOPY arch/x86/boot/vmlinux.bin
+  AS      arch/x86/boot/header.o
+  LD      arch/x86/boot/setup.elf
+  OBJCOPY arch/x86/boot/setup.bin
+  BUILD   arch/x86/boot/bzImage
+
+Ok，终于，终于可以回头看看 bzImage 的处理了，形式上很简单，arch/x86/boot/tools/build 工具把 setup.bin 和 vmlinux.bin 写入到 bzImage 文件，写入的细节唯有看 arch/x86/boot/tools/build.c 代码。
+
+### setup.bin/setup.elf
+
+这二者本质上是同一个东西。setup.elf 的 rule 很简单：
+
+	$(obj)/setup.elf: $(src)/setup.ld $(SETUP_OBJS) FORCE
+		$(call if_changed,ld)
+		
+将 $(SETUP_OBJS) via linker script $(src)/setup.ld 链接为 setup.elf。$(SETUP_OBJS) 是 arch/x86/boot 下的一堆 .o(由.c 或 .S 编译得到)，使用 kbuild 通用 rule(makefile.build中) 来处理。
+setup.bin 是使用 objdump 处理 setup.elf 而来，很简单的一条命令：
+
+	objcopy -O binary setup.elf setup.bin
+
+
+>objcopy can be used to generate a raw binary file by using an output target of binary (e.g., use -O binary).  When objcopy generates a raw binary file, it will essentially produce a memory dump of the contents of the input object file.  All symbols and relocation information will be discarded.  The memory dump will start at the load address of the lowest section copied into the output file.
+       
+### vmlinux.bin
+
+由依赖关系可知，arch/x86/boot/vmlinux.bin 的生成主要依赖 arch/x86/boot/compressed/vmlinux（注意和 root source 目录下的 vmlinux区分），本小节中将简称为 vmlinux。其 rule 在 arch/x86/boot/compressed/vmlinux/Makefile 中的定义也很简单：
+
+	$(obj)/vmlinux: $(vmlinux-objs-y) FORCE
+	        $(call if_changed,check_data_rel)
+	        $(call if_changed,ld)
+
+作为 prerequisites 的 $(vmlinux-objs-y) 由一堆 .c 或 .S 编译来的 .o，加上 linker script 组成。其中的 piggy.o 是与其他的 $(vmlinux-objs-y) 的处理不同，也是最 tricky 的地方，因为并没有 piggy.c 或 piggy.S/piggy.s 的存在。
+
+但因为 Makefile 中有 piggy.S 的 rule 存在
+
+	$(obj)/piggy.S: $(obj)/vmlinux.bin.$(suffix-y) $(obj)/mkpiggy FORCE
+	        $(call if_changed,mkpiggy)
+
+所以，piggy.o 将 match Makefile.build 中的相应的 rule：
+
+	$(obj)/%.o: $(src)/%.S $(objtool_dep) FORCE
+		$(call if_changed_rule,as_o_S)
+ 
+ So，原来 piggy.S 是生成的。因为内核的压缩默认使用 gzip，所以 suffix-y = gz。来看完整过程：
+ 
+ 	cmd_mkpiggy = $(obj)/mkpiggy $< > $@ || ( rm -f $@ ; false )
+ 	$(obj)/piggy.S: $(obj)/vmlinux.bin.$(suffix-y) $(obj)/mkpiggy FORCE
+	        $(call if_changed,mkpiggy)
+
+ 	$(obj)/vmlinux.bin.gz: $(vmlinux.bin.all-y) FORCE
+        	$(call if_changed,gzip)
+
+	vmlinux.bin.all-y := $(obj)/vmlinux.bin
+	vmlinux.bin.all-$(CONFIG_X86_NEED_RELOCS) += $(obj)/vmlinux.relocs
+
+	$(obj)/vmlinux.bin: vmlinux FORCE
+	        $(call if_changed,objcopy)
+
+	#作者注：cmd_relocs 有 2 条命令，第二条似乎并没有输出内容到 target，为什么存在？
+	cmd_relocs = $(CMD_RELOCS) $< > $@;$(CMD_RELOCS) --abs-relocs $<
+	$(obj)/vmlinux.relocs: vmlinux FORCE
+	        $(call if_changed,relocs)
+
+vmlinux.bin 和 vmlinux.relocs 均由 root source 目录下的 vmlinux 处理而来，然后将二者 gzip 压缩，最后交由 host program: mkpiggy 来处理。
+
+mkpiggy 的源程序真的很简单(arch/x86/boot/compressed/mkpiggy.c)，由它来生成 piggy.S 文件。同样，piggy.S 的内容也很简单，在我的环境中，它的内容长这样：
+
+	.section ".rodata..compressed","a",@progbits
+	.globl z_input_len
+	z_input_len = 7195099
+	.globl z_output_len
+	z_output_len = 24546884
+	.globl input_data, input_data_end
+	input_data:
+	.incbin "arch/x86/boot/compressed/vmlinux.bin.gz"
+	input_data_end:
+
+细心的你想必已经发现了其中的 knack： "7.42 .incbin "FILE"[,SKIP[,COUNT]]" of `info as`
+
+>The `incbin' directive includes FILE verbatim at the current location.
+
+除了 piggy.S，vmlinux-objs-y 中还有一个文件需要额外的处理：vmlinux.lds，它 match 了 Makefile.build 中的 rule：
+
+	$(obj)/%.lds: $(src)/%.lds.S FORCE
+ 	       $(call if_changed_dep,cpp_lds_S)
+
+	cmd_cpp_lds_S = $(CPP) $(cpp_flags) -P -U$(ARCH) \
+	                            -D__ASSEMBLY__ -DLINKER_SCRIPT -o $@ $<
+
+So， vmlinux 所需要的所有 vmlinux-objs-y 已经准备好了，要做的就是将所有的 vmlinux-objs-y 链接为 vmlinux。
+
+至此，arch/x86/boot/vmlinux.bin 的 prerequisites: arch/x86/boot/compressed/vmlinux 也已 ready，对 vmlinux 经过简单的 objcopy 处理即得到 vmlinux.bin。
 ## modules
