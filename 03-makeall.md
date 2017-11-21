@@ -798,6 +798,16 @@ Makefile.modbuiltin 和 Makefile.build 的基本框架是一致的。有一点�
 
 这里再次强调下 kernel 中 module 的概念：module 本质上是 function module ，这个 function module 存在的形式可以是 built in 内核，也可以是独立文件 .ko 存在。作为 makefile 中的 target，modules.builtin 的目的是把所有 built in 形式的 module 过滤出来，以便后面的使用。modules.builtin 文件的处理过程和 modules.order 文件是是一样的，本处不赘述。
 
+Makefile.modbuiltin 中一点小细节值得记录一下，该 Makefile 中有如下：
+
+	$(modbuiltin-target): $(subdir-ym) FORCE
+	        $(Q)(for m in $(modbuiltin-mods); do echo kernel/$$m; done;     \
+	        cat /dev/null $(modbuiltin-subdirs)) > $@
+
+这里 /dev/null 的存在很是有些玄妙，第一眼看到它为问为什么需要它？经过实验发现，去掉 /dev/null 后，在某些情况下编译会 suspend 在这条 recipe。在哪儿些情况下呢？在 $(modbuiltin-subdirs) 为空的情况下，这样第二条语句就只有 `cat`，比如 init 目录(没有子目录)，因为 cat 在等待输入，所以 make 会 suspend 在那(经同事协助发现)。通过 `top` 观察进程发现这个问题:
+
+![modbuiltin](res/builtin-issue.jpg  "modbuiltin")
+
 总之，生成所有子目录下的 modules.builtin 后，然后用 awk 处理生成 root source 目录下的 modules.builtin。根据注释来看，这行 awk 处理的意思是去除重复。同时对 modules.order 文件也用 awk 做了相同处理。
 
 得到了 root source 目录下的 modules.order 和 modules.builtin 文件后，才开始通过下面这行做要紧的事:生成 .ko 文件
