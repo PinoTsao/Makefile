@@ -661,7 +661,12 @@ bzImage 依赖于：setup.bin/setup.elf， vmlinux.bin，还有一个隐藏的 z
   OBJCOPY arch/x86/boot/setup.bin
   BUILD   arch/x86/boot/bzImage
 
-Ok，终于，终于可以回头看看 bzImage 的处理了，形式上很简单，arch/x86/boot/tools/build 工具把 setup.bin 和 vmlinux.bin 写入到 bzImage 文件，写入的细节唯有看 arch/x86/boot/tools/build.c 代码。
+Ok，终于，终于可以回头看看 bzImage 的处理了:
+
+	cmd_image = $(obj)/tools/build $(obj)/setup.bin $(obj)/vmlinux.bin \
+	                               $(obj)/zoffset.h $@ $($(quiet)redirect_image)
+
+形式上很简单，arch/x86/boot/tools/build 工具在 zoffset.h 的辅助下把 setup.bin 和 vmlinux.bin 写入到 bzImage 文件，写入的细节唯有看 arch/x86/boot/tools/build.c 代码。
 
 ### setup.bin/setup.elf
 
@@ -747,4 +752,133 @@ mkpiggy 的源程序真的很简单(arch/x86/boot/compressed/mkpiggy.c)，由它
 So， vmlinux 所需要的所有 vmlinux-objs-y 已经准备好了，要做的就是将所有的 vmlinux-objs-y 链接为 vmlinux。
 
 至此，arch/x86/boot/vmlinux.bin 的 prerequisites: arch/x86/boot/compressed/vmlinux 也已 ready，对 vmlinux 经过简单的 objcopy 处理即得到 vmlinux.bin。
+
 ## modules
+
+modules 是 `make all` 的最后一个 target，它的依赖关系就比较简单了，先看图：
+
+![modules](res/modules.png  "modules")
+
+再看代码：
+
+	# Build modules
+
+	# A module can be listed more than once in obj-m resulting in
+	# duplicate lines in modules.order files.  Those are removed
+	# using awk while concatenating to the final file.
+	PHONY += modules
+	modules: $(vmlinux-dirs) $(if $(KBUILD_BUILTIN),vmlinux) modules.builtin
+	        $(Q)$(AWK) '!x[$$0]++' $(vmlinux-dirs:%=$(objtree)/%/modules.order) > $(objtree)/modules.order
+	        @$(kecho) '  Building modules, stage 2.';
+	        $(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modpost
+
+	modules.builtin: $(vmlinux-dirs:%=%/modules.builtin)
+	        $(Q)$(AWK) '!x[$$0]++' $^ > $(objtree)/modules.builtin
+
+	%/modules.builtin: include/config/auto.conf
+	        $(Q)$(MAKE) $(modbuiltin)=$*
+
+也很简单。前两个 prerequisites: $(vmlinux-dirs), vmlinux 已经处理完了，所以只要处理 modules.builtin。由代码可知：$(vmlinux-dirs) 中的每个目录下都有一个 modules.builtin 文件，通过这条命令生成：
+
+	#自动变量 $* 是个不太一样的自动变量，它在不同的情景下有不同的解释(详见文档)。
+	# 此处它表示 target 中的 %，也即 $(vmlinux-dirs) 中的文件夹们
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.modbuiltin obj=$*
+
+Makefile.modbuiltin 和 Makefile.build 的基本框架是一致的。有一点小不同：它同时 include 了 include/config/auto.conf 和 include/config/tristate.conf，这两个文件的关系很微妙，因为没有研究生成他们的代码，仅从内容上推测，tristate.conf 是 auto.conf 的子集，并将 -y, -m 改为大写 -Y, -M。
+
+[后记]：有时技术就像一层窗户纸，[有人](https://nnc3.com/mags/LJ_1994-2014/LJ/222/11333.html) 帮你戳一下，就豁然开朗了：
+
+>**Compilation Options: Configuration Symbols**
+
+>Configuration symbols are the ones used to decide which features will be included in the final Linux kernel image. Two kinds of symbols are used for conditional compilation: boolean and tristate. They differ only in the number of values that each one can take. But, this difference is more important than it seems. Boolean symbols (not surprisingly) can take one of two values: true or false. Tristate symbols, on the other hand, can take three different values: yes, no or module.
+
+>Not everything in the kernel can be compiled as a module. Many features are so intrusive that you have to decide at compilation time whether the kernel will support them. For example, you can't add Symmetric Multi-Processing (SMP) or kernel preemption support to a running kernel. So, using a boolean config symbol makes sense for those kinds of features. Most features that can be compiled as modules also can be added to a kernel at compile time. That's the reason tristate symbols exist—to decide whether you want to compile a feature built-in (y), as a module (m) or not at all (n). 
+
+其实在 vmlinux 的处理过程中，所有的代码均已经编译出来了，obj-y 的代码的进 vmlinux 文件，obj-m (编译为模块)也被编译成相应的 .o 文件。
+
+这里再次强调下 kernel 中 module 的概念：module 本质上是 function module ，这个 function module 存在的形式可以是 built in 内核，也可以是独立文件 .ko 存在。作为 makefile 中的 target，modules.builtin 的目的是把所有 built in 形式的 module 过滤出来，以便后面的使用。modules.builtin 文件的处理过程和 modules.order 文件是是一样的，本处不赘述。
+
+总之，生成所有子目录下的 modules.builtin 后，然后用 awk 处理生成 root source 目录下的 modules.builtin。根据注释来看，这行 awk 处理的意思是去除重复。同时对 modules.order 文件也用 awk 做了相同处理。
+
+得到了 root source 目录下的 modules.order 和 modules.builtin 文件后，才开始通过下面这行做要紧的事:生成 .ko 文件
+
+	make -f $(srctree)/scripts/Makefile.modpost
+
+Makefile.modpost 中的注释对该文件的作用说的很清楚：找到 .tmp_versions 目录下列出的所有 modules，为每一个 modules 创建 <module>.mod.c 和 Module.symvers 文件，链接 module 为 .ko 文件。完成这件事情的主角是一个 host program: scripts/mod/modpost。因为依赖关系比较简单，这次不看图了，直接看代码：
+
+	# 此 makefile 中的第一条 rule, 所以是 default goal.
+	_modpost: __modpost
+	# 后面的条件语句的结果就是 $(modules), 它是经过验证过的当前目录中存在的所有 module
+	_modpost: $(if $(KBUILD_MODPOST_NOFINAL), $(modules:.ko:.o),$(modules))
+	
+	# cmd_modpost 命令行过大，此处不展出
+	__modpost: $(modules:.ko=.o) FORCE
+	        $(call cmd,modpost) $(wildcard vmlinux)
+
+	# x86 下，ARCH_POSTLINK 为空. 
+	cmd_ld_ko_o = $(LD) -r $(LDFLAGS) $(KBUILD_LDFLAGS_MODULE) $(LDFLAGS_MODULE)-o $@ $(filter-out FORCE,$^) ; \
+	        $(if $(ARCH_POSTLINK), $(MAKE) -f $(ARCH_POSTLINK) $@, true)
+	$(modules): %.ko :%.o %.mod.o FORCE
+	        +$(call if_changed,ld_ko_o)
+
+	cmd_cc_o_c = $(CC) $(c_flags) $(KBUILD_CFLAGS_MODULE) $(CFLAGS_MODULE) -c -o $@ $<
+	$(modules:.ko=.mod.o): %.mod.o: %.mod.c FORCE
+        	$(call if_changed_dep,cc_o_c)
+
+	# 此依赖关系确保处理 .mod.c 时，它已经存在
+	$(modules:.ko=.mod.c): __modpost ;
+
+可以看出，.ko 的生成其实很清晰简单，重点是 modpost 的处理。
+
+**这就是执行 `make` 时所有发生的事情**
+
+## 番外：编译 flags 的使用
+
+编译内核的 .c 文件时，所用的编译选项都放在变量 c_flags 中(定义在 scripts/Makefile.lib)：
+
+	c_flags        = -Wp,-MD,$(depfile) $(NOSTDINC_FLAGS) $(LINUXINCLUDE)     \
+	                 $(__c_flags) $(modkern_cflags)                           \
+	                 $(basename_flags) $(modname_flags)
+
+	# 在我们的假设情景下
+	__c_flags = $(_c_flags)
+
+	# 然后有如下
+	_c_flags       = $(filter-out $(CFLAGS_REMOVE_$(basetarget).o), $(orig_c_flags))
+
+	orig_c_flags   = $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) $(KBUILD_SUBDIR_CCFLAGS) \
+	                 $(ccflags-y) $(CFLAGS_$(basetarget).o)
+
+
+`-Wp,-MD,$(depfile)` 用来将该 .c 依赖的所有头文件列出到 $(depfile) 中，参考： "4.14 Generating Prerequisites Automatically" of `info make`。
+*NOSTDINC_FLAGS* & *LINUXINCLUDE* 定义在 top Makefile 中。
+
+__c_flags 包括：
+*KBUILD_CPPFLAGS* & *KBUILD_CFLAGS* 也定义在 top Makefile 中，是全局的基础预处理/编译选项。
+*cc-flags* 定义在 kbuild makefile 中，在 recursive make 时，用于指定某一个目录下编译时所需的特定选项。同理适用asflags-y 和 ldflags-y。
+*KBUILD_SUBDIR_CCFLAGS* 的作用是指定适用于当前目录及子目录下的编译选项，本质上是通过变量 *subdir-ccflags-y*。但是它即将[被删除](https://git.kernel.org/pub/scm/linux/kernel/git/masahiroy/linux-kbuild.git/commit/?h=misc&id=4e13d47c5806bafb5e524b08a9d759b606b1851c) 。
+此外，对于每一个源文件，还可以指定它所需要的，或者所需要删除的特定编译选项，通过 *CFLAGS_$(basetarget).o* 和 *CFLAGS_REMOVE_$(basetarget* 来实现这个功能。
+
+还有 *modkern_cflags*, *basename_flags*, *modname_flags*:
+
+	# In Makefile.build
+	modkern_cflags =                                          \
+	        $(if $(part-of-module),                           \
+        	        $(KBUILD_CFLAGS_MODULE) $(CFLAGS_MODULE), \
+	                $(KBUILD_CFLAGS_KERNEL) $(CFLAGS_KERNEL))
+
+	# In Makefile.lib
+	name-fix = $(squote)$(quote)$(subst $(comma),_,$(subst -,_,$1))$(quote)$(squote)
+	
+	basename_flags = -DKBUILD_BASENAME=$(call name-fix,$(basetarget))
+	
+	modname_flags  = $(if $(filter 1,$(words $(modname))),\
+	                 -DKBUILD_MODNAME=$(call name-fix,$(modname)))
+
+从代码可以看出，*modkern_flags* 允许你为 kernel/module 指定单独的 flags：KBUILD_CFLAGS_MODULE/KERNEL 允许你为内核/模块分别指定特定 arch 使用的选项，所以他们一般定义在 arch makefile 中；还允许你通过命令行(CFLAGS_MODULE, CFLAGS_KERNEL)为特定 arch 的内核/模块指定特定选项。
+而 *basename_flags* 和 *modname_flags* 则简单定义了宏
+
+参考：
+
+1. `3.7 Compilation flags` of Documentation/kbuild/makefiles.txt
+2. `16.1 Set variables to tweak the build to the architecture` of Documentation/kbuild/makefiles.txt
