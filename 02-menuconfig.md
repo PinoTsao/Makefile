@@ -1,4 +1,4 @@
-# Flowchart of make menuconfig
+# make menuconfig
 
 阅读本文及后续文章的 flowchart 的前提和 tips：
 
@@ -41,10 +41,10 @@
 他们 match 了 top makefile 中的这条 rule：
 
 	config: scripts_basic outputmakefile FORCE
-		$(Q)$(MAKE) $(build)=scripts/kconfig $@
+	        $(Q)$(MAKE) $(build)=scripts/kconfig $@
  
 	%config: scripts_basic outputmakefile FORCE
-		$(Q)$(MAKE) $(build)=scripts/kconfig $@
+	        $(Q)$(MAKE) $(build)=scripts/kconfig $@
 		
 变量 build 定义在 scripts/Kbuild.include 中：
 
@@ -65,7 +65,7 @@ Target "scripts_basic" 被很多 target 依赖，它的作用是生成整个内�
 所以，make menuconfig 的过程就剩下执行 config 的 recipe，也就是进入 scripts/kconfig/Makefile 中寻找真正的 target： menuconfig，在此 makefile 中有：
 
 	menuconfig: $(obj)/mconf
-		$< $(silent) $(Kconfig)
+	        $< $(silent) $(Kconfig)
 
 	hostprogs-y := conf nconf mconf kxgettext qconf gconf
 	mconf-objs     := mconf.o zconf.tab.o $(lxdialog)
@@ -76,7 +76,7 @@ Target "scripts_basic" 被很多 target 依赖，它的作用是生成整个内�
 看起来 menuconfig 的 target-prerequisite 关系流程很简单，仅仅是使用一个叫做 mconf 的 host program。那么剩下的问题就分为了 2 个：
 
 1. host program "mconf" 是如何生成的？
-2. mconf 如何执行生成 .config 等配置文件的？
+2. mconf 如何生成 .config 等配置文件？
 
 关于第一个问题，首先需要了解 kernel build 的 recursive make 的框架。由上面 config 的 rule 可以看出，recursive make 是通过这条 recipie:
 
@@ -108,7 +108,7 @@ Documentation/kbuild/makefiles.txt 的 “4 Host Program support” 对此有全
                     $(if $($(m)-objs)$($(m)-cxxobjs),,$(m)))
 
 	# C executables linked based on several .o files
-	# 从 kbuild makefile 中定义的 host program 中挑出由若干.c文件编译的program，也叫做 Composite Host Program.
+	# 从 kbuild makefile 中定义的 host program 中挑出由若干 .c 文件编译的 program，也叫做 Composite Host Program.
 	# 本例中, mconf 就是一个 composite host program
 	host-cmulti := $(foreach m,$(__hostprogs),\
                    $(if $($(m)-cxxobjs),,$(if $($(m)-objs),$(m))))
@@ -125,7 +125,7 @@ Documentation/kbuild/makefiles.txt 的 “4 Host Program support” 对此有全
 
 	# 编译 host program 所需要的 flag。关于 flag 的处理，可以另成一文。
 	_hostc_flags   = $(HOSTCFLAGS)   $(HOST_EXTRACFLAGS)   \
-				$(HOSTCFLAGS_$(basetarget).o)
+			         $(HOSTCFLAGS_$(basetarget).o)
 	ifeq ($(KBUILD_SRC),)
 	    __hostc_flags   = $(_hostc_flags)
 	else
@@ -140,7 +140,7 @@ Documentation/kbuild/makefiles.txt 的 “4 Host Program support” 对此有全
 	quiet_cmd_host-cobjs    = HOSTCC  $@
 	cmd_host-cobjs    = $(HOSTCC) $(hostc_flags) -c -o $@ $<
 	$(host-cobjs): $(obj)/%.o: $(src)/%.c FORCE
-		$(call if_changed_dep,host-cobjs)
+	        $(call if_changed_dep,host-cobjs)
 
 	# 通过上面的 rule 生成了所有的 .o 文件， composite host program 由它依赖的所有 .o 文件链接而来。
 	# 这里用了一个小技巧, 下面3行代码包含了 2 条 rule，第一条很容易辨别出，仅定义了 recipe；
@@ -148,7 +148,7 @@ Documentation/kbuild/makefiles.txt 的 “4 Host Program support” 对此有全
 	# 最终在 makefile 的数据库中，会将这两条 rule 合并成一条。
 	# multi_depend 函数来自 Makefile.lib，将在下面的代码块中介绍。
 	$(host-cmulti): FORCE
-		$(call if_changed,host-cmulti)
+	        $(call if_changed,host-cmulti)
 	$(call multi_depend, $(host-cmulti), , -objs)
 
 	# 将所依赖的 .o 文件链接成可执行文件时所使用的命令行。
@@ -249,7 +249,7 @@ multi_depend 函数定义在 scripts/Makefile.lib，如下：
 
 参考了上面的链接就会发现，这里所涉及的知识还不仅这一点，还包括 flex, bison, gperf 等，另一个大千世界。
 
-**这就是 mconf 的编译过程，此处只是描述了框架，其中隐藏了无数细节姿势等你去探索**
+**这就是 mconf 的编译过程，本文只介绍了框架，其中隐藏了无数细节姿势等你去探索**
 
 ### mconf 如何执行生成 .config 等配置文件的？
 
@@ -259,7 +259,7 @@ multi_depend 函数定义在 scripts/Makefile.lib，如下：
 上面的代码中已知，host program 编译 flags 的处理如下：
 
 	_hostc_flags   = $(HOSTCFLAGS)   $(HOST_EXTRACFLAGS)   \
-				$(HOSTCFLAGS_$(basetarget).o)
+		             $(HOSTCFLAGS_$(basetarget).o)
 	ifeq ($(KBUILD_SRC),)
 	    __hostc_flags   = $(_hostc_flags)
 	else
@@ -269,4 +269,4 @@ multi_depend 函数定义在 scripts/Makefile.lib，如下：
 
 “-Wp,-MD” 用来生成 .d 依赖关系文件。 HOSTCFLAGS 定义在 top Makefile 中，是全局的 host program 编译选项；某目录下所有的 host program 如果要使用特定的编译选项，应在其目录下的 Makefile 中使用 HOST_EXTRACFLAGS；如果某个 host program 要使用特定的编译选项，应使用 $(HOSTCFLAGS_$(basetarget).o)。
 
-详细且权威的介绍在：“4.4 Controlling compiler options for host programs” of Documentation/kbuild/makefiles.txt
+详细且权威的介绍在：`4.4 Controlling compiler options for host programs` of Documentation/kbuild/makefiles.txt
