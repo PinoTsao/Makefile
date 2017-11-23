@@ -814,7 +814,8 @@ Makefile.modbuiltin 中一点小细节值得记录一下，该 Makefile 中有�
 
 	make -f $(srctree)/scripts/Makefile.modpost
 
-Makefile.modpost 中的注释对该文件的作用说的很清楚：找到 .tmp_versions 目录下列出的所有 modules，为每一个 modules 创建 <module>.mod.c 和 Module.symvers 文件，链接 module 为 .ko 文件。完成这件事情的主角是一个 host program: scripts/mod/modpost。因为依赖关系比较简单，这次不看图了，直接看代码：
+Makefile.modpost 中的注释对该文件的作用说的很清楚：找到 .tmp_versions 目录下列出的所有 modules，为每一个 modules 创建 <module>.mod.c 和 Module.symvers 文件，链接 <module>.mod.o 和 <module>.o 为 <module>.ko 文件。
+完成这件事情的主角是一个 host program: scripts/mod/modpost，它负责生成每一个  module<module>.mod.c，以及 $(objtree)Module.symvers 文件。因为依赖关系比较简单，这次不看图了，直接看代码：
 
 	# 此 makefile 中的第一条 rule, 所以是 default goal.
 	_modpost: __modpost
