@@ -704,3 +704,25 @@ scripts/basic/fixdep.c 中 hash 表的实现有个小tips，就是 Hash value �
    3
 
 每一个 Hvalue* 下面是一个链表，叫做 hash bucket，保存着相同 hash value 的 item。单项链表，后插入的在链表头部。
+
+--------------------
+clean-dirs = _clean_. _clean_arch/x86 _clean_arch/x86/lib _clean_arch/x86/math-emu _clean_arch/x86/oprofile _clean_arch/x86/pci _clean_arch/x86/power _clean_arch/x86/video _clean_block _clean_certs _clean_crypto _clean_drivers _clean_firmware _clean_fs _clean_init _clean_ipc _clean_kernel _clean_lib _clean_mm _clean_net _clean_security _clean_sound _clean_usr _clean_virt _clean_Documentation _clean_samples
+
+grep -r -I CLEAN_FILES 
+arch/arm/Makefile:# We use MRPROPER_FILES and CLEAN_FILES now
+arch/arm64/Makefile:# We use MRPROPER_FILES and CLEAN_FILES now
+arch/ia64/Makefile:CLEAN_FILES += vmlinux.gz bootloader
+arch/powerpc/Makefile:CLEAN_FILES += $(TOUT)
+arch/h8300/boot/Makefile:CLEAN_FILES += arch/$(ARCH)/vmlinux.bin arch/$(ARCH)/vmlinux.srec arch/$(ARCH)/uImage.bin
+arch/mips/Makefile:CLEAN_FILES += vmlinux.32 vmlinux.64
+arch/cris/Makefile:CLEAN_FILES += \
+arch/mn10300/Makefile:CLEAN_FILES += $(boot)/zImage
+arch/mn10300/Makefile:CLEAN_FILES += $(boot)/compressed/vmlinux
+arch/mn10300/Makefile:CLEAN_FILES += $(boot)/compressed/vmlinux.bin
+arch/mn10300/Makefile:CLEAN_FILES += $(boot)/compressed/vmlinux.bin.gz
+arch/um/Makefile:CLEAN_FILES += linux x.i gmon.out
+arch/blackfin/Makefile:CLEAN_FILES += \
+arch/parisc/Makefile:CLEAN_FILES	+= lifimage
+Makefile:clean: rm-files := $(CLEAN_FILES)
+tools/perf/Documentation/Makefile:CLEAN_FILES =									\
+tools/perf/Documentation/Makefile:	$(call QUIET_CLEAN, Documentation) $(RM) $(CLEAN_FILES)
