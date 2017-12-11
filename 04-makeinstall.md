@@ -1,6 +1,6 @@
 # modules_install & install
 
-上一篇文章介绍了 make 的所有过程和产物，即vmlinux， bzImage 和各 modules 文件，那下一步要做的就是安装你编译的内核。安装内核自然就分为安装内核 image 和各 module，这二者分别由 `make modules_install` `make install` 来完成
+上一篇文章介绍了 make 的所有过程和产物，即 vmlinux， bzImage 和各 modules 文件，那下一步要做的就是安装你编译的内核。安装内核自然就分为安装内核 image 和各 module，这二者分别由  `make install` 和 `make modules_install` 来完成。
 
 ## make modules_install
 
@@ -131,7 +131,7 @@ Target "install" 定义在 arch Makefile 中，以 x86 为例：
 
 	arch/x86/boot/install.sh $(KERNELRELEASE) arch/x86/boot/bzImage System.map "$(INSTALL_PATH)"
 
-进入 install.sh 里面看一眼，看起来也是很 easy 的一段 bash script。大部分情况下，如果系统中有 installkernel 的程序，则执行它来安装刚编译好的 kernel，传递给 install.sh 的参数原样传给系统中的 installkernel 脚本。
+进入 install.sh 里面看一眼，看起来也是很简单的一段 shell script。大部分情况下，如果系统中有 installkernel 的程序，则执行它来安装刚编译好的 kernel，传递给 install.sh 的参数原样传给系统中的 installkernel 脚本：
 
 	if [ -x /sbin/${INSTALLKERNEL} ]; then exec /sbin/${INSTALLKERNEL} "$@"; fi
 
@@ -142,13 +142,11 @@ installkernel 是位于 /sbin 目录下的一个 bash script。 在我的 Fedora
 1. 把 root source 目录下的 System.map 拷贝为 /boot/System.map-$KERNEL_VERSION 并在 /boot 目录下为它建立符号链接 /boot/System.map
 2. 把 arch/x86/boot/bzImage 拷贝为 /boot/vmlinuz-$KERNEL_VERSION 并在 /boot 目录下为它建立符号链接 /boot/vmlinuz
 3. 执行：
-	 `new-kernel-pkg --mkinitrd --dracut --host-only --depmod --install --kernel-name $KERNEL_NAME $KERNEL_VERSION`
+	`new-kernel-pkg --mkinitrd --dracut --host-only --depmod --install --kernel-name $KERNEL_NAME $KERNEL_VERSION`
 	`new-kernel-pkg --rpmposttrans --kernel-name $KERNEL_NAME $KERNEL_VERSION`
 
 >new-kernel-pkg is a tool used in packaging to automate the installation of a new kernel, including the creation of an initial ram filesystem image, updating of bootloader configuration, and other associated tasks.
 
-new-kernel-pkg 是个脚本，请参考它 的 manual 来理解 iii. 中的命令行具体做了什么，如果想了解的更清楚，就只能阅读它的代码了。简单扫了一眼发现，此脚本中还会调用其他的命令。。。一股深似海的感觉铺面而来:)
+new-kernel-pkg 是个脚本，请参考它 的 manual 来理解 iii. 中的命令行具体做了什么，如果想了解的更清楚，就只能阅读它的代码了。简单扫了一眼发现，此脚本中还会调用其他的命令，一股深似海的感觉扑面而来:)
 
-
-### modules_install 和 install 的过程就是酱紫咯～
-### 本文完
+**modules_install 和 install 的过程就是酱紫咯～**

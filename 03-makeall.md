@@ -9,7 +9,7 @@ Makefile 中的第一个 target 是 make 的 default goal。在 top Makefile 中
 	PHONY := _all
 	_all:
 
-_all 更的作用更像是个 placeholder，因为真正作用的 target 都是它的 prerequisites。当不加任何参数执行 make 时，这可能是整个编译过程最复杂的一步(这也意味着，本文可能无比的长)，用流程图来观察会更清晰；又因为流程无比的长，所以一张图是不够的，将分成几个 part。 
+_all 的作用更像是个 placeholder，因为真正作用的 target 都是它的 prerequisites。当不加任何参数执行 make 时，这可能是整个编译过程最复杂的一步(这也意味着，本文可能无比的长)，用流程图来观察会更清晰；又因为流程无比的长，所以一张图是不够的，将分成几个 part。 
 
 Part1：
 ![vmlinux-1](res/vmlinux-1.png  "vmlinux_process_1")
@@ -302,7 +302,7 @@ Target "gcc-plugins" 的作用是编译出 scripts/gcc-plugins 目录下的所�
 
 >-include include/config/auto.conf # 配置已完成，auto.conf是存在的
 include scripts/Kbuild.include
-include $(kbuild-file) # kbuild makefile, 本例是 init/Makefile
+include $(kbuild-file) # kbuild makefile
 include scripts/Makefile.lib # 对 kbuild makefile 中定义的通用变量(如 obj-y, obj-m 等) 进行处理
 
 下面的代码分析来自上述这些 makeifle。
@@ -892,4 +892,5 @@ __c_flags 包括：
 参考：
 
 1. `3.7 Compilation flags` of Documentation/kbuild/makefiles.txt
-2. `16.1 Set variables to tweak the build to the architecture` of Documentation/kbuild/makefiles.txt
+2. `6.1 Set variables to tweak the build to the architecture` of Documentation/kbuild/makefiles.txt
+

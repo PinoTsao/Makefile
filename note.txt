@@ -726,3 +726,23 @@ arch/parisc/Makefile:CLEAN_FILES	+= lifimage
 Makefile:clean: rm-files := $(CLEAN_FILES)
 tools/perf/Documentation/Makefile:CLEAN_FILES =									\
 tools/perf/Documentation/Makefile:	$(call QUIET_CLEAN, Documentation) $(RM) $(CLEAN_FILES)
+
+$ grep -r -I clean-dirs 
+scripts/package/Makefile:clean-dirs += $(objtree)/debian/
+scripts/package/Makefile:clean-dirs += $(objtree)/tar-install/
+scripts/Makefile.clean:__clean-dirs    := $(wildcard                                               \
+scripts/Makefile.clean:		   $(addprefix $(obj)/, $(filter-out $(objtree)/%, $(clean-dirs)))    \
+scripts/Makefile.clean:		   $(filter $(objtree)/%, $(clean-dirs)))
+scripts/Makefile.clean:# $(info pino wanna see: $(_clean-dirs))
+scripts/Makefile.clean:quiet_cmd_cleandir = CLEAN   $(__clean-dirs)
+scripts/Makefile.clean:      cmd_cleandir = rm -rf $(__clean-dirs)
+scripts/Makefile.clean:ifneq ($(strip $(__clean-dirs)),)
+Documentation/kbuild/makefiles.txt:		clean-dirs := $(objtree)/debian/
+Makefile:clean-dirs      := $(addprefix _clean_, . $(vmlinux-alldirs) Documentation samples)
+Makefile:# $(info clean-dirs = $(clean-dirs))
+Makefile:PHONY += $(clean-dirs) clean archclean vmlinuxclean
+Makefile:$(clean-dirs):
+Makefile:clean-dirs := $(addprefix _clean_,$(KBUILD_EXTMOD))
+Makefile:PHONY += $(clean-dirs) clean
+Makefile:$(clean-dirs):
+Makefile:clean: $(clean-dirs)

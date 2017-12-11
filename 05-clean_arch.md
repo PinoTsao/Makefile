@@ -22,7 +22,7 @@ clean, mrproper, distclean, 递进的进行 clean，所以称之为 infrastructu
 
 	clean: bluhbluh
 
-clean 完成大部分的清理动作，mrproper 在 clean 的基础上继续清理, distclean 又在 mrproper 的基础上继续清理。一般情况下 mrproper 是你的清理首选 target。
+clean 完成大部分的清理动作，mrproper 在 clean 的基础上继续清理, distclean 又在 mrproper 的基础上继续清理。一般情况下 mrproper 是你的清理首选。
 
 ## clean
 
