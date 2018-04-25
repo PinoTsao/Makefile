@@ -277,7 +277,7 @@ asm-generic 的做的事情是在 arch/$(SRCARCH)/include/generated 目录下创
 
 ### gcc-plugins
 
-Top Makefile 中 include 了 scripts/Makefile.gcc-plugins，target "gcc-plugins" 其中 。
+Top Makefile 中 include 了 scripts/Makefile.gcc-plugins，target "gcc-plugins" 定义在其中 。
 关于 kbuild 对 gcc-plugins 的支持，参考： Documentation/gcc-plugins.txt。
 
 gcc-plugin 以 .so 的形式存在，作为 gcc 的参数来使用：
@@ -290,7 +290,7 @@ gcc-plugin 以 .so 的形式存在，作为 gcc 的参数来使用：
 
 不同版本的 gcc 可能是被不同的编译器编译(gcc or g++)出来的，那么对应的plugin也要使用那个编译器。比如 gcc 4.8 以上都要使用 g++。
 
-Target "gcc-plugins" 的作用是编译出 scripts/gcc-plugins 目录下的所有 plugin。
+Target "gcc-plugins" 的作用是编译出 scripts/gcc-plugins 目录下 kconfig 配置选中的所有 plugin。
 
 ### $(vmlinux-dirs)
 
@@ -685,7 +685,7 @@ setup.bin 是使用 objdump 处理 setup.elf 而来，很简单的一条命令�
        
 ### vmlinux.bin
 
-由依赖关系可知，arch/x86/boot/vmlinux.bin 的生成主要依赖 arch/x86/boot/compressed/vmlinux（注意和 root source 目录下的 vmlinux区分），本小节中将简称为 vmlinux。其 rule 在 arch/x86/boot/compressed/vmlinux/Makefile 中的定义也很简单：
+由依赖关系可知，arch/x86/boot/vmlinux.bin 的生成主要依赖 arch/x86/boot/compressed/vmlinux（注意和 root source 目录下的 vmlinux区分），本小节中将简称为 vmlinux。其 rule 在 arch/x86/boot/compressed/Makefile 中的定义也很简单：
 
 	$(obj)/vmlinux: $(vmlinux-objs-y) FORCE
 	        $(call if_changed,check_data_rel)
@@ -741,6 +741,16 @@ mkpiggy 的源程序真的很简单(arch/x86/boot/compressed/mkpiggy.c)，由它
 
 >The `incbin' directive includes FILE verbatim at the current location.
 
+另一个问题：z_input_len 和 z_output_len 是什么长度呢？由 scripts/Makefile.lib 中的 cmd_gzip 可知，压缩的时候把所有的待压缩文件 cat 出来，也即 gzip 的输入文件只是 stdin。也就是说，原本是要压缩 vmlinux.bin 和 vmlinux.reloc 两个文件，现在却当作一个文件进行压缩，这样的结果是影响了 vmlinux.bin.gz 文件的格式(gzip的格式参考官方spec[官方spec](https://tools.ietf.org/html/rfc1952) )
+
+由 mkpiggy.c 的代码可知，z_output_len 获取的是 .gz 文件的最后4个byte的内容，由 spec 可知，它是：
+
+>ISIZE (Input SIZE)
+	This contains the size of the original (uncompressed) input data modulo 2^32.
+
+所以，.gz 文件的最后 4个 byte 表示原始输入文件的长度(But, this will only work for files under 4GB)。
+z_input_len 的值来自 fread，虽然 manual 中没有说明，但 fread 会移动 file pointer，也即 fread 读了多少 byte，就自动移动 FILE pointer 多少 byte。所以 z_input_len 的值是 vmlinux.bin.gz 文件的长度。
+
 除了 piggy.S，vmlinux-objs-y 中还有一个文件需要额外的处理：vmlinux.lds，它 match 了 Makefile.build 中的 rule：
 
 	$(obj)/%.lds: $(src)/%.lds.S FORCE
@@ -752,6 +762,8 @@ mkpiggy 的源程序真的很简单(arch/x86/boot/compressed/mkpiggy.c)，由它
 So， vmlinux 所需要的所有 vmlinux-objs-y 已经准备好了，要做的就是将所有的 vmlinux-objs-y 链接为 vmlinux。
 
 至此，arch/x86/boot/vmlinux.bin 的 prerequisites: arch/x86/boot/compressed/vmlinux 也已 ready，对 vmlinux 经过简单的 objcopy 处理即得到 vmlinux.bin。
+
+简单总结一下： 源码根目录下的 vmlinux 经过 objcopy 处理生成 compressed 目录下的 vmlinux.bin, 同时经过 kernel 自己的工具 relocs 的处理，把 relocation 信息提取到文件 vmlinux.relocs，mkpiggy 程序再将这两个文件压缩成 piggy.S 与 compressed 目录下的其他的文件一起链接成 compressed 目录下的 vmlinux 文件，然后经过 objcopy 为上一层目录(boot)下的 vmlinux.bin。
 
 ## modules
 
@@ -868,7 +880,7 @@ __c_flags 包括：
 *KBUILD_CPPFLAGS* & *KBUILD_CFLAGS* 也定义在 top Makefile 中，是全局的基础预处理/编译选项。
 *cc-flags* 定义在 kbuild makefile 中，在 recursive make 时，用于指定某一个目录下编译时所需的特定选项。同理适用asflags-y 和 ldflags-y。
 *KBUILD_SUBDIR_CCFLAGS* 的作用是指定适用于当前目录及子目录下的编译选项，本质上是通过变量 *subdir-ccflags-y*。但是它即将[被删除](https://git.kernel.org/pub/scm/linux/kernel/git/masahiroy/linux-kbuild.git/commit/?h=misc&id=4e13d47c5806bafb5e524b08a9d759b606b1851c) 。
-此外，对于每一个源文件，还可以指定它所需要的，或者所需要删除的特定编译选项，通过 *CFLAGS_$(basetarget).o* 和 *CFLAGS_REMOVE_$(basetarget* 来实现这个功能。
+此外，对于每一个源文件，还可以指定它所需要的，或者所需要删除的特定编译选项，通过 *CFLAGS_$(basetarget).o* 和 *CFLAGS_REMOVE_$(basetarget)* 来实现这个功能。
 
 还有 *modkern_cflags*, *basename_flags*, *modname_flags*:
 

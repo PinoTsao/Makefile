@@ -705,6 +705,18 @@ scripts/basic/fixdep.c 中 hash 表的实现有个小tips，就是 Hash value �
 
 每一个 Hvalue* 下面是一个链表，叫做 hash bucket，保存着相同 hash value 的 item。单项链表，后插入的在链表头部。
 
+
+Q15. Makefile 中有如下相似变量：KBUILD_KCONFIG，KCONFIG_CONFIG，他们是什么？
+KCONFIG_CONFIG 在 top Makefile 中有定义： KCONFIG_CONFIG  ?= .config。
+KBUILD_KCONFIG 则略难理解，它定义在 scripts/kconfig/Makefile:
+  ifdef KBUILD_KCONFIG
+    Kconfig := $(KBUILD_KCONFIG)
+  else
+    Kconfig := Kconfig
+  endif
+
+它其实是指源码根目录下的 Kconfig 文件，配置程序需要读取它来来完成config的过程。一般我们是不需要设置这个变量，除非你提供了一个替代根目录下Kconfig的文件？
+
 --------------------
 clean-dirs = _clean_. _clean_arch/x86 _clean_arch/x86/lib _clean_arch/x86/math-emu _clean_arch/x86/oprofile _clean_arch/x86/pci _clean_arch/x86/power _clean_arch/x86/video _clean_block _clean_certs _clean_crypto _clean_drivers _clean_firmware _clean_fs _clean_init _clean_ipc _clean_kernel _clean_lib _clean_mm _clean_net _clean_security _clean_sound _clean_usr _clean_virt _clean_Documentation _clean_samples
 
