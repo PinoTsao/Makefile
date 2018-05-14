@@ -38,6 +38,8 @@
 	xenconfig       - Enable additional options for xen dom0 and guest kernel support
 	tinyconfig      - Configure the tiniest possible kernel
 
+- 注1：silentoldconfig 已经被 rename 为 syncconfig，因为原有名字名不符实，why？下面的更新有解释(2018/5/11)
+
 他们 match 了 top makefile 中的这条 rule：
 
 	config: scripts_basic outputmakefile FORCE
@@ -220,13 +222,13 @@ multi_depend 函数定义在 scripts/Makefile.lib，如下：
 
 	scripts/kconfig/mconf: $(mconf-objs)
 
-由上面的 makefile 可知，mconf 依赖 mconf.o zconf.tab.o 和其他 .o 文件。细心的读者会发现，在干净的源码目录 scripts/kconfig/ 中，mconf. c 可以找到，但 zconf.tab.c 却没有，why?
+由上面的 makefile 可知，mconf 依赖 mconf.o zconf.tab.o 和其他 .o 文件。细心的读者会发现，在干净的源码目录 scripts/kconfig/ 中，mconf.c 可以找到，但 zconf.tab.c 却没有，why?
 
 我们找一下 zconf.tab.o match了哪儿些 rule。在 kbuild makefile 中有：
 
-	$(obj)/zconf.tab.o: $(obj)/zconf.lex.c #只有 prerequsite, 没有 recipe?
+	$(obj)/zconf.tab.o: $(obj)/zconf.lex.c
 
-同时它也 match 了 Makefile.build 中最基本的普遍使用的一条 rule:
+同时它也 match 了 Makefile.build 中最普遍使用的一条 rule:
 
 	$(obj)/%.o: $(src)/%.c $(recordmcount_source) $(objtool_obj) FORCE
 
@@ -249,11 +251,38 @@ multi_depend 函数定义在 scripts/Makefile.lib，如下：
 
 参考了上面的链接就会发现，这里所涉及的知识还不仅这一点，还包括 flex, bison, gperf 等，另一个大千世界。
 
-**这就是 mconf 的编译过程，本文只介绍了框架，其中隐藏了无数细节姿势等你去探索**
+**这就是 mconf 的编译过程，本节只介绍了框架，其中隐藏了无数细节姿势等你去探索**
 
-### mconf 如何执行生成 .config 等配置文件的？
+### .config 文件是如何生成的？How Kconfig work?
+(2018/5/11更新)
+.config 的生成过程基本上 cover 了 Kconfig 大部分工作内容，和 kbuild 就没有关系了。Kconfig 定义了一套 language，本节不涉及代码如何解析 kconfig language，因为这需要更多的基础知识，同时对于本节的主旨帮助不大。
 
-这个问题和 kbuild 基本没有关系，从知识领域划分的话，属于 kconfig，又是另一个大千世界。想了解它的话，唯有阅读 source code 了(看起来So hard！)。如果想挑战人生的话，可以试试了解 mconf 如何解析 Kconfig 文件并最终生成 .config。
+上一节中我们已经了解，`make menuconfig`的过程其实是一个叫做 mconf 的 host program 来做配置。用来做配置的 host program 不止 mconf，从 scripts/kconfig/Makefile 中可以看出还有 conf, gconf, nconf, qconf，除了 conf 是用命令行的方式，其他的都是使用各种不同图形界面。
+
+因为需要解析 kconfig language，所以这些 host program 的生成需要一套语言解析的特殊文件，也即那些 *_shipped 文件，他们分别是用 gperf, flex, bison 生成的，源文件和 .c 文件的对应关系如下
+
+- *.l -- flex --> *.lex.c
+- *.y -- bison -->  *.tab.c
+- zconf.gperf -- gperf --> zconf.hash.c
+
+*_shipped 文件是上面这三个 .c 文件的 off-the-shelf(现成的) 版，由上一节可知，仅仅是做了文件名的转换。为什么提供这些 *_shipped 文件呢，目的是为了减少 kernel 编译对于 host system 的依赖(依赖恰当版本的相应工具)，同时加速 make *config 的过程，这也是因为多年前机器的性能低下导致那些工具的处理相对今天慢很多。但到了2018年，性能问题已经不是瓶颈。
+
+我在 2017/8/15 问了关于 *shipped 文件的[问题](https://lkml.org/lkml/2017/8/15/257)，也许是受到我的启发，maintainer 于 2017/8/19 发了 [RFC patch](https://lwn.net/Articles/731443/)，来删除这些 shipped 文件，而直接使用相应工具生成，得到了 linus 本人的赞许。在交流中， Linus 本人发现了 gperf 的一些兼容性问题，遂将 gperf 的使用在 kernel 中完全删除(commit: bb3290d91695bb1ae78ab86f18fb4d7ad8e5ebcc)。最后在 2017/12 月，maintainer 发了 [patch](https://lkml.org/lkml/2017/12/9/95)，将 shipped 文件全部删除。
+
+scripts/kconfig/Makefile 中定义了很多 config 的 target，这些 target 分别由不同的 host program 处理，且他们的目的并不完全相同。绝大部分 target 是外部接口(用户使用)，作用是生成 .config 文件，唯独 silentoldconfig(现在叫syncconfig) 不是供用户使用，它不仅会生成 .config，还进一步生成 include/config/auto.conf，include/config/tristate.conf，include/generated/autoconf.h，以及 include/config/ 下的所有空白头文件(由函数 conf_write_autoconf 实现，并只在 silentoldconfig 时调用)，这些文件才是编译时实际使用的配置文件，而不是 .config 文件。auto.conf 和 tristate.conf 在 Makefile 的处理过程中被使用，include/config/ 下的空白头文件存在的原因详见 scripts/basic/fixdep.c 开头的描述。简而言之：GCC 的编译选项 -MD 帮助生成文件依赖关系 .d，但是在 kernel 编译环境下，这个依赖关系中缺少了该源码文件对配置项开关的依赖关系，所以 fixdep 耍了一个 trick，将源码对配置项开关的依赖转变成文件依赖关系，并将其添加到 .<target>.cmd 文件中。也就是说，如果配置项发生改变，它对应的 include/config/xxx 也会改变，而这个依赖关系存在于 fixdep 生成的 .<target>.cmd 文件中。通过这个 trick 便可以在下次编译时侦测到配置项的变化。
+
+silentoldconfig(syncconfig) 生成的文件中，auto.conf 的内容是配置项 value = "n" 之外所有的项； tristate.conf 的内容是配置项 type = S_TRISTATE && value != "n" 的所有项; autoconf.h 的内容跟 auto.conf 的内容一致，只是用C语言的格式，这两个文件的实际有效行数是一样的。.config 中那些标记为 “# CONFIG_xxx is not set” 的意思是该配置项的值是 "no"。
+
+所有做 kconfig 的 host program 的代码开始时都会读取所有目录下的  Kconfig 文件，将所有配置项存储在内部的数据结构中(这个过程是由函数 *conf_parse* 完成)，我把它叫做 initial configuration database(注意，Kconfig 文件中的每一个配置项都有其默认值)。不同的 config target 根据不同的输入条件来调整 initial configuration database，最后写入 .config 文件。这些不同的输入条件大致有下面几类：
+1. 已有 .config 文件，利用它来更新 intial configuration database；如果没有 .config，则 initial configuration database 不会被更新。所有带 GUI 的 config target，defconfig，oldconfig 等，都是这种情况。
+2. 前缀为 all* 的 config target 和 randconfig，顾名思义，他们仅仅是按需更新 initial configuration target。
+
+silentoldconfig 和 oldconfig 一样，只是基本不可能(不是做不到) drop you to the command line，为什么？因为silentoldconfig 仅在编译过程中供内部使用，这时有几种情况：
+1. .config 已存在，说明已经做过 make *config，所以这时不存在未配置的 new configuration item；
+2. .config 不存在，说明 initial configuration database 不会被修改而直接写入 .config，所以这时也不会存在未配置的 new configuration item。
+3. .config 已存在，但其内容和当前 kernel 的配置项不一致，不进行 make *config，直接 make，会被 drop 到命令行进行交互式配置。这种情况出现的场景是：更新后的代码引入了新的配置项，而用户并不知道，所以一般会直接执行 make，这时会被 drop 到命令行进行配置。
+
+defconfig 可以加选项也可以不加，选项表示一个默认配置文件。Makefile 代码中默认配置文件由变量 KBUILD_DEFCONFIG 表示，由 arch/$(ARCH)/Makefile 提供(比如 x86)，也可以在 make *config 的命令行指定。如果 arch Makefile 没有提供，代码中会通过函数 conf_get_default_confname 来获取。
 
 ### Host program 编译选项的处理
 上面的代码中已知，host program 编译 flags 的处理如下：
