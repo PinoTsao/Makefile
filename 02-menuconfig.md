@@ -14,18 +14,17 @@
 >make menuconfig/[all]/modules_install/install/clean(or mrproper,disclean)
 
 
-内核编译的第一步永远是配置: make *config。有各种样子的 config 的 target:
+内核编译的第一步是配置，即: make *config。有很多 config target 可以用:
 
 	config          - Update current config utilising a line-oriented program
 	nconfig         - Update current config utilising a ncurses menu based program
 	menuconfig      - Update current config utilising a menu based program
-	xconfig	        - Update current config utilising a Qt based front-end
-	gconfig	        - Update current config utilising a GTK+ based front-end
+	xconfig         - Update current config utilising a Qt based front-end
+	gconfig         - Update current config utilising a GTK+ based front-end
 	oldconfig	    - Update current config utilising a provided .config as base
 	localmodconfig  - Update current config disabling modules not loaded
 	localyesconfig  - Update current config converting local mods to core
-	silentoldconfig - Same as oldconfig, but quietly, additionally update deps
-	defconfig	    - New config with default from ARCH supplied defconfig
+	defconfig       - New config with default from ARCH supplied defconfig
 	savedefconfig   - Save current config as ./defconfig (minimal config)
 	allnoconfig     - New config where all options are answered with no
 	allyesconfig    - New config where all options are accepted with yes
@@ -33,12 +32,12 @@
 	alldefconfig    - New config with all symbols set to default
 	randconfig      - New config with random answer to all options
 	listnewconfig   - List new options
-	olddefconfig    - Same as silentoldconfig but sets new symbols to their default value
+	olddefconfig    - Same as oldconfig but sets new symbols to their default value without prompting
 	kvmconfig       - Enable additional options for kvm guest kernel support
 	xenconfig       - Enable additional options for xen dom0 and guest kernel support
 	tinyconfig      - Configure the tiniest possible kernel
 
-- 注1：silentoldconfig 已经被 rename 为 syncconfig，因为原有名字名不符实，why？下面的更新有解释(2018/5/11)
+- 注：曾有 silentoldconfig，现在被 rename 为 syncconfig，且不会在 make help 中展示出来，因为名不符实。下文的更新有解释，下文当提到 "silentoldconfig" 时也即 "syncconfig"(2018/5/11)
 
 他们 match 了 top makefile 中的这条 rule：
 
@@ -251,7 +250,7 @@ multi_depend 函数定义在 scripts/Makefile.lib，如下：
 
 参考了上面的链接就会发现，这里所涉及的知识还不仅这一点，还包括 flex, bison, gperf 等，另一个大千世界。
 
-**这就是 mconf 的编译过程，本节只介绍了框架，其中隐藏了无数细节姿势等你去探索**
+这就是 mconf 的编译过程，本节只介绍了框架，其中隐藏了无数细节姿势等你去探索
 
 ### .config 文件是如何生成的？How Kconfig work?
 (2018/5/11更新)
@@ -271,18 +270,79 @@ multi_depend 函数定义在 scripts/Makefile.lib，如下：
 
 scripts/kconfig/Makefile 中定义了很多 config 的 target，这些 target 分别由不同的 host program 处理，且他们的目的并不完全相同。绝大部分 target 是外部接口(用户使用)，作用是生成 .config 文件，唯独 silentoldconfig(现在叫syncconfig) 不是供用户使用，它不仅会生成 .config，还进一步生成 include/config/auto.conf，include/config/tristate.conf，include/generated/autoconf.h，以及 include/config/ 下的所有空白头文件(由函数 conf_write_autoconf 实现，并只在 silentoldconfig 时调用)，这些文件才是编译时实际使用的配置文件，而不是 .config 文件。auto.conf 和 tristate.conf 在 Makefile 的处理过程中被使用，include/config/ 下的空白头文件存在的原因详见 scripts/basic/fixdep.c 开头的描述。简而言之：GCC 的编译选项 -MD 帮助生成文件依赖关系 .d，但是在 kernel 编译环境下，这个依赖关系中缺少了该源码文件对配置项开关的依赖关系，所以 fixdep 耍了一个 trick，将源码对配置项开关的依赖转变成文件依赖关系，并将其添加到 .<target>.cmd 文件中。也就是说，如果配置项发生改变，它对应的 include/config/xxx 也会改变，而这个依赖关系存在于 fixdep 生成的 .<target>.cmd 文件中。通过这个 trick 便可以在下次编译时侦测到配置项的变化。
 
+参考下图感受 .config 的产生过程：
+
+![kconfig](res/kconfig.jpg  "kconfig")
+
+所有做 kconfig 的 host program 的代码开始时会读取所有目录下的  Kconfig 文件，将所有配置项存储在内部的数据结构中(这个过程是由函数 *conf_parse* 完成)，我把它叫做 initial configuration database(注意，Kconfig 文件中的每一个配置项都有其默认值)。不同的 config target 根据不同的输入条件来调整 initial configuration database，最后写入 .config 文件。这些不同的输入条件大致有下面两类：
+1. 基于已有的配置文件和 GUI/Command line 选择，更新 intial configuration database；
+2. 前缀为 all* 的 config target 和 randconfig，顾名思义，他们仅仅是按需更新 initial configuration database。
+
+conf_read 函数用于读取一个已有配置文件。当使用 defconfig 时，arch Makefile 中会指定 default config 文件(更详细解释见下文)；当使用 config, nconfig, menuconfig, xconfig, gconfig, oldconfig, olddefconfig 时，则按照图示中的优先级查找可用的。conf_write 函数将 configuration database 写入到 .config 文件。
+
+除了生成额外的文件，silentoldconfig 和 oldconfig 一样，只是基本不可能(不是做不到) drop you to the command line，因为 silentoldconfig 仅在编译过程中供内部使用，这时有几种情况：
+1. .config 不存在，将报错 *Configuration file ".config" not found! Please run some configurator (e.g. "make oldconfig" or "make menuconfig" or "make xconfig").*。
+2. .config 已存在，且其内容(配置项名字和数量)与当前 kernel 的配置项(所有 Kconfig 的内容)一致，这意味着不存在未配置的 new configuration item，说明已经做过 make *config。
+3. .config 已存在，但其内容和当前 kernel 的配置项不一致，如果不进行 make *config，直接 make，会被 drop 到命令行进行交互式配置。这种情况出现的场景是：更新后的代码引入了新的配置项，而用户直接执行 make，这时会被 drop 到命令行进行配置。
+
 silentoldconfig(syncconfig) 生成的文件中，auto.conf 的内容是配置项 value = "n" 之外所有的项； tristate.conf 的内容是配置项 type = S_TRISTATE && value != "n" 的所有项; autoconf.h 的内容跟 auto.conf 的内容一致，只是用C语言的格式，这两个文件的实际有效行数是一样的。.config 中那些标记为 “# CONFIG_xxx is not set” 的意思是该配置项的值是 "no"。
 
-所有做 kconfig 的 host program 的代码开始时都会读取所有目录下的  Kconfig 文件，将所有配置项存储在内部的数据结构中(这个过程是由函数 *conf_parse* 完成)，我把它叫做 initial configuration database(注意，Kconfig 文件中的每一个配置项都有其默认值)。不同的 config target 根据不同的输入条件来调整 initial configuration database，最后写入 .config 文件。这些不同的输入条件大致有下面几类：
-1. 已有 .config 文件，利用它来更新 intial configuration database；如果没有 .config，则 initial configuration database 不会被更新。所有带 GUI 的 config target，defconfig，oldconfig 等，都是这种情况。
-2. 前缀为 all* 的 config target 和 randconfig，顾名思义，他们仅仅是按需更新 initial configuration target。
+defconfig 表示使用当前 ARCH 的默认配置。每个 ARCH 在 arch/$(ARCH)/configs/ 目录下提供了一些默认配置文件，当前 ARCH 使用哪一个由变量 KBUILD_DEFCONFIG 表示，定义在 arch/$(ARCH)/Makefile中 。如果 arch Makefile 没有提供  KBUILD_DEFCONFIG 的定义，代码中会通过函数 conf_get_default_confname 来获取一个默认配置文件名： arch/$ARCH/defconfig。在众多 ARCH 中，只有有下面两个没有定义 KBUILD_DEFCONFIG 变量：
 
-silentoldconfig 和 oldconfig 一样，只是基本不可能(不是做不到) drop you to the command line，为什么？因为silentoldconfig 仅在编译过程中供内部使用，这时有几种情况：
-1. .config 已存在，说明已经做过 make *config，所以这时不存在未配置的 new configuration item；
-2. .config 不存在，说明 initial configuration database 不会被修改而直接写入 .config，所以这时也不会存在未配置的 new configuration item。
-3. .config 已存在，但其内容和当前 kernel 的配置项不一致，不进行 make *config，直接 make，会被 drop 到命令行进行交互式配置。这种情况出现的场景是：更新后的代码引入了新的配置项，而用户并不知道，所以一般会直接执行 make，这时会被 drop 到命令行进行配置。
+>arch/s390/defconfig
+arch/alpha/defconfig
 
-defconfig 可以加选项也可以不加，选项表示一个默认配置文件。Makefile 代码中默认配置文件由变量 KBUILD_DEFCONFIG 表示，由 arch/$(ARCH)/Makefile 提供(比如 x86)，也可以在 make *config 的命令行指定。如果 arch Makefile 没有提供，代码中会通过函数 conf_get_default_confname 来获取。
+还有一些 ARCH 提供的默认配置文件名是 arch/$(ARCH)/configs/defconfig，容易使读者 confusing，其实也在 Makefile 中定义了 KBUILD_DEFCONFIG：
+
+>arch/riscv/configs/defconfig
+arch/arm64/configs/defconfig
+arch/nds32/configs/defconfig
+
+当你想保存当前的配置为一份默认配置时，正确的做法是通过：
+
+	make savedefconfig
+
+在源码根目录下生成 defconfig 文件，然后
+
+	cp defconfig arch/$(ARCH)/my_cool_defconfig
+
+注意，这个名字必须以 "_defconfig" 结尾。使用的时候则：
+
+	make my_cool_defconfig
+
+即可。值得注意的是，无论是生成的 defconfig，还是 arch/$(ARCH)/configs/ 下的默认配置文件，他们的内容都是只保存和默认值不一样的配置项(还记得上面说过每一个配置项都是有默认值的吗)，所以他们的内容相对 .config 来说很短。换句话说，他们保存的是一个增量。
+
+localyesconfig 和 localmodconfig 的处理基于 scripts/kconfig/streamline_config.pl 生成仅包含当前已加载 module 信息的 .config 文件(临时文件)，然后再执行 oldconfig，基于刚才的临时 .config，生成最终的 .config 文件。streamline_config.pl 的作用在它的文件头部解释的比较清楚：
+
+>What it does?
+
+>If you have installed a Linux kernel from a distribution
+that turns on way too many modules than you need, and
+you only want the modules you use, then this program
+is perfect for you.
+
+>It gives you the ability to turn off all the modules that are
+not loaded on your system.
+
+xenconfig 和 kvmconfig 的处理过程一致，通过 scripts/kconfig/merge_config.sh 将 kernel/configs/ 下相应的 config 文件 merge 到 .config，然后执行 `make oldconfig`
+
+### An introduction to scripts/basic/fixdep
+
+从 fixdep 所在的路径也可以看出，它是 kernel build 的一个基础工具，它仅有一个 fixdep.c 生成。fixdep.c 的文件头部注释对它的作用解释的很清楚。
+
+fixdep 的使用方式定义在 scripts/Kbuild.include
+
+	cmd_and_fixdep =                                                         \
+		$(echo-cmd) $(cmd_$(1));                                             \
+		scripts/basic/fixdep $(depfile) $@ '$(make-cmd)' > $(dot-target).tmp;\
+		rm -f $(depfile);                                                    \
+		mv -f $(dot-target).tmp $(dot-target).cmd;
+
+它接受 3 个参数：gcc 编译选项 -MD 生成的 .d 文件，target name，以及编译当前 target 的命令行。它的作用是基于 .d 依赖关系文件，生成包含更多内容的 .<target>.cmd 文件。其中比较重要的一项工作是，将当前 target 对 configuration 的依赖关系写入 .cmd 文件。通过扫描 .d 文件，获得依赖文件的列表，依次打开并扫描每一个依赖文件，查找 "CONFIG_" 开头的配置项名，并将该配置项名字按如下样式写入 .cmd 文件：
+
+	$(wildcard include/config/init/env/arg/limit.h)
+
+这条文本对应了 CONFIG_INIT_ENV_ARG_LIMIT。每当该配置项发生变化时，kconfig 就会更新对应的 emtpy header file 的时间戳。这样，下次编译的时候，make 就可以 catch 到依赖的更新，从而重新编译 target。
 
 ### Host program 编译选项的处理
 上面的代码中已知，host program 编译 flags 的处理如下：
@@ -299,3 +359,6 @@ defconfig 可以加选项也可以不加，选项表示一个默认配置文件�
 “-Wp,-MD” 用来生成 .d 依赖关系文件。 HOSTCFLAGS 定义在 top Makefile 中，是全局的 host program 编译选项；某目录下所有的 host program 如果要使用特定的编译选项，应在其目录下的 Makefile 中使用 HOST_EXTRACFLAGS；如果某个 host program 要使用特定的编译选项，应使用 $(HOSTCFLAGS_$(basetarget).o)。
 
 详细且权威的介绍在：`4.4 Controlling compiler options for host programs` of Documentation/kbuild/makefiles.txt
+
+### 参考
+[Kernel build command line reference](http://archive.oreilly.com/pub/a/linux/excerpts/9780596100797/kernel-build-command-line-reference.html)
