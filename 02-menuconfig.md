@@ -338,7 +338,7 @@ fixdep 的使用方式定义在 scripts/Kbuild.include
 		rm -f $(depfile);                                                    \
 		mv -f $(dot-target).tmp $(dot-target).cmd;
 
-它接受 3 个参数：gcc 编译选项 -MD 生成的 .d 文件，target name，以及编译当前 target 的命令行。它的作用是基于 .d 依赖关系文件，生成包含更多内容的 .<target>.cmd 文件。其中比较重要的一项工作是，将当前 target 对 configuration 的依赖关系写入 .cmd 文件。通过扫描 .d 文件，获得依赖文件的列表，依次打开并扫描每一个依赖文件，查找 "CONFIG_" 开头的配置项名，并将该配置项名字按如下样式写入 .cmd 文件：
+它接受 3 个参数：gcc 编译选项 -MD 生成的 .d 文件，target name，以及编译当前 target 的命令行。fixdep 基于 .d 依赖关系文件，生成包含更多依赖关系的 .cmd 文件。其中比较重要的一项工作是，将当前 target 对 configuration 的依赖关系写入 .cmd 文件。通过扫描 .d 文件，获得依赖文件的列表，依次打开并扫描每一个依赖文件，查找 "CONFIG_" 开头的配置项名，并将该配置项名字按如下样式写入 .cmd 文件：
 
 	$(wildcard include/config/init/env/arg/limit.h)
 
