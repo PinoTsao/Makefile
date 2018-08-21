@@ -1,4 +1,4 @@
-# make menuconfig
+# Kconfig/Configuration
 
 阅读本文及后续文章的 flowchart 的前提和 tips：
 
@@ -12,7 +12,6 @@
 本系列文章遵循小白的思路进行分析，i.e.:
 
 >make menuconfig/[all]/modules_install/install/clean(or mrproper,disclean)
-
 
 内核编译的第一步是配置，即: make *config。有很多 config target 可以用:
 
@@ -43,10 +42,10 @@
 
 	config: scripts_basic outputmakefile FORCE
 	        $(Q)$(MAKE) $(build)=scripts/kconfig $@
- 
+
 	%config: scripts_basic outputmakefile FORCE
 	        $(Q)$(MAKE) $(build)=scripts/kconfig $@
-		
+
 变量 build 定义在 scripts/Kbuild.include 中：
 
 	build := -f $(srctree)/scripts/Makefile.build obj
@@ -54,8 +53,8 @@
 所以当执行 make *config 时，其实是执行下面这条命令
 
 	make -f $(srctree)/scripts/Makefile.build obj=scripts/kconfig *config
-	
-由于 target “*config” 还有很多 prerequisites, 所以我们以 menuconfig 为例，画出他们的流程图。
+
+target “*config” 还有很多 prerequisites。我们将以 menuconfig 为例，以流程图的形式进行分析。
 
 在 Top makefile 中：
 
@@ -252,7 +251,7 @@ multi_depend 函数定义在 scripts/Makefile.lib，如下：
 
 这就是 mconf 的编译过程，本节只介绍了框架，其中隐藏了无数细节姿势等你去探索
 
-### .config 文件是如何生成的？How Kconfig work?
+### .config 文件是如何生成的？How does Kconfig work?
 (2018/5/11更新)
 .config 的生成过程基本上 cover 了 Kconfig 大部分工作内容，和 kbuild 就没有关系了。Kconfig 定义了一套 language，本节不涉及代码如何解析 kconfig language，因为这需要更多的基础知识，同时对于本节的主旨帮助不大。
 
