@@ -9,7 +9,7 @@ Makefile 中的第一个 target 是 make 的 default goal。在 top Makefile 中
 	PHONY := _all
 	_all:
 
-_all 的作用更像是个 placeholder，因为真正作用的 target 都是它的 prerequisites。当不加任何参数执行 make 时，这可能是整个编译过程最复杂的一步(这也意味着，本文可能无比的长)，用流程图来观察会更清晰；又因为流程无比的长，所以一张图是不够的，将分成几个 part。 
+_all 的作用更像是个 placeholder，因为真正作用的 target 都是它的 prerequisites。当不加任何参数执行 make 时，这可能是整个编译过程最复杂的一步(这也意味着，本文可能无比的长)，用流程图来观察会更清晰；又因为流程无比的长，所以一张图是不够的，将分成几个 part。
 
 Part1：
 ![vmlinux-1](res/vmlinux-1.png  "vmlinux_process_1")
@@ -443,10 +443,10 @@ kbuild 系统对这些变量的处理主要在 scripts/Makefile.lib 中：
         	@{ echo $(@:.o=.ko); echo $(link_multi_deps); \
         	   $(cmd_undef_syms); } > $(MODVERDIR)/$(@F:.o=.mod)
 	$(call multi_depend, $(multi-used-m), .o, -objs -y -m)
-	
+
 	# 一般情况下，上面2条 rule 的 recipe 的核心(link_multi-y, link_multi-m)最后都落在这一条(此处省略了一点分析)
 	cmd_link_multi-link = $(LD) $(ld_flags) -r -o $@ $(link_multi_deps) $(cmd_secanalysis)
-	
+
 	# 3. foo/built-in.o match 下面这条
 	# To build objects in subdirs, we need to descend into the directories
 	$(sort $(subdir-obj-y)): $(subdir-ym) ;
@@ -501,7 +501,7 @@ obj-m 中的每一个 single object 和 composite object 都是一个 module。
 	modorder := $(patsubst %/,%/modules.order, $(filter %/, $(obj-y)) $(obj-m:.o=.ko))
 	# 这里有一个疑问：为什么子目录的处理不包含 obj-m？难道 obj-y 和 obj-m 的子目录一定相同？
 	# 答：因为 $(filter %/, $(obj-m)) 是 $(obj-m:.o=.ko) 的子集
- 
+
 从目录树的最底层开始，生成该目录下的 modules.order 文件。文件的内容包含下一层目录中同名文件的内容，和本层目录中的 $(obj-m:.o=.ko)。最底层的目录肯定是没有子目录的，所以只是 echo kernel/$m 到 modules.order 文件。
 
 ## bzImage
@@ -538,14 +538,14 @@ bzImage 依赖于：setup.bin/setup.elf， vmlinux.bin，还有一个隐藏的 z
 	setup-y         += early_serial_console.o edd.o *header.o* main.o memory.o
 
 	$(obj)/header.o: $(obj)/zoffset.h
-	
+
 	$(obj)/zoffset.h: $(obj)/compressed/vmlinux FORCE
 	        $(call if_changed,zoffset)
 
 	sed-zoffset := -e 's/^\([0-9a-fA-F]*\) [ABCDGRSTVW] \(startup_32\|startup_64\|efi32_stub_entry\|efi64_stub_entry\|efi_pe_entry\|input_data\|_end\|_ehead\|_text\|z_.*\)$$/\#define ZO_\2 0x\1/p'
 
 	cmd_zoffset = $(NM) $< | sed -n $(sed-zoffset) > $@
- 
+
 索戴斯乃，原来在 setup.elf 的处理过程中就需要用到 zoffset.h 了，所以在处理 bzImage 的时候，zoffset.h 已经存在了。但是它竟然依赖 compressed 目录下的 vmlinux，所以看起来其实 compressed/vmlinux 比 setup.bin 更早生成，不信我们来看看 make 的输出
 
 >CC      arch/x86/boot/a20.o
@@ -674,7 +674,7 @@ Ok，终于，终于可以回头看看 bzImage 的处理了:
 
 	$(obj)/setup.elf: $(src)/setup.ld $(SETUP_OBJS) FORCE
 		$(call if_changed,ld)
-		
+
 将 $(SETUP_OBJS) via linker script $(src)/setup.ld 链接为 setup.elf。$(SETUP_OBJS) 是 arch/x86/boot 下的一堆 .o(由.c 或 .S 编译得到)，使用 kbuild 通用 rule(makefile.build中) 来处理。
 setup.bin 是使用 objdump 处理 setup.elf 而来，很简单的一条命令：
 
@@ -682,7 +682,7 @@ setup.bin 是使用 objdump 处理 setup.elf 而来，很简单的一条命令�
 
 
 >objcopy can be used to generate a raw binary file by using an output target of binary (e.g., use -O binary).  When objcopy generates a raw binary file, it will essentially produce a memory dump of the contents of the input object file.  All symbols and relocation information will be discarded.  The memory dump will start at the load address of the lowest section copied into the output file.
-       
+
 ### vmlinux.bin
 
 由依赖关系可知，arch/x86/boot/vmlinux.bin 的生成主要依赖 arch/x86/boot/compressed/vmlinux（注意和 root source 目录下的 vmlinux区分），本小节中将简称为 vmlinux。其 rule 在 arch/x86/boot/compressed/Makefile 中的定义也很简单：
@@ -702,9 +702,9 @@ setup.bin 是使用 objdump 处理 setup.elf 而来，很简单的一条命令�
 
 	$(obj)/%.o: $(src)/%.S $(objtool_dep) FORCE
 		$(call if_changed_rule,as_o_S)
- 
+
  So，原来 piggy.S 是生成的。因为内核的压缩默认使用 gzip，所以 suffix-y = gz。来看完整过程：
- 
+
  	cmd_mkpiggy = $(obj)/mkpiggy $< > $@ || ( rm -f $@ ; false )
  	$(obj)/piggy.S: $(obj)/vmlinux.bin.$(suffix-y) $(obj)/mkpiggy FORCE
 	        $(call if_changed,mkpiggy)
@@ -833,12 +833,12 @@ Makefile.modpost 中的注释对该文件的作用说的很清楚：找到 .tmp_
 	_modpost: __modpost
 	# 后面的条件语句的结果就是 $(modules), 它是经过验证过的当前目录中存在的所有 module
 	_modpost: $(if $(KBUILD_MODPOST_NOFINAL), $(modules:.ko:.o),$(modules))
-	
+
 	# cmd_modpost 命令行过大，此处不展出
 	__modpost: $(modules:.ko=.o) FORCE
 	        $(call cmd,modpost) $(wildcard vmlinux)
 
-	# x86 下，ARCH_POSTLINK 为空. 
+	# x86 下，ARCH_POSTLINK 为空.
 	cmd_ld_ko_o = $(LD) -r $(LDFLAGS) $(KBUILD_LDFLAGS_MODULE) $(LDFLAGS_MODULE)-o $@ $(filter-out FORCE,$^) ; \
 	        $(if $(ARCH_POSTLINK), $(MAKE) -f $(ARCH_POSTLINK) $@, true)
 	$(modules): %.ko :%.o %.mod.o FORCE
@@ -892,9 +892,9 @@ __c_flags 包括：
 
 	# In Makefile.lib
 	name-fix = $(squote)$(quote)$(subst $(comma),_,$(subst -,_,$1))$(quote)$(squote)
-	
+
 	basename_flags = -DKBUILD_BASENAME=$(call name-fix,$(basetarget))
-	
+
 	modname_flags  = $(if $(filter 1,$(words $(modname))),\
 	                 -DKBUILD_MODNAME=$(call name-fix,$(modname)))
 

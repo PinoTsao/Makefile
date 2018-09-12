@@ -1,0 +1,28 @@
+2018/8/27 update
+
+
+                                         usr/built-in.a       lib/built-in.a
+                                         kernel/built-in.a    
+                                         certs/built-in.a     drivers/built-in.a
+                                         mm/built-in.a        sound/built-in.a
+                                         fs/built-in.a        firmware/built-in.a
+ head_64.o                               ipc/built-in.a                
+ head64.o                                security/built-in.a  net/built-in.a              
+ ebda.o                                  crypto/built-in.a                
+ platform-quirks.o    init/built-in.a    block/built-in.a     virt/built-in.a      lib/built-in.a
+   (x86)
+     |                       |                |                    |                    |
+                                               $(core-y) $(libs-y2)
+ $(head-y)                $(init-y)            $(drivers-y) $(net-y)               $(libs-y1)
+                                               $(virt-y)
+     |                       |                |                    |                    |
+     |                       |                |                    |                    |
+      \                     /                  \                  /                     |
+       \                   /                    \                /                      |
+
+        KBUILD_VMLINUX_INIT                     KBUILD_VMLINUX_MAIN              KBUILD_VMLINUX_LIBS
+                \                                     |                                /
+                 \                                    |                               /
+                  \___________________________________|______________________________/
+                                                      |
+                                                   vmlinux
